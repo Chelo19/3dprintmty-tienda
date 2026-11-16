@@ -1,0 +1,30 @@
+{
+  "name": "3dprintmty-tienda",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev -w @tienda/api\" \"npm run dev -w @tienda/web\"",
+    "dev:api": "npm run dev -w @tienda/api",
+    "dev:web": "npm run dev -w @tienda/web",
+    "start:api": "npm run start -w @tienda/api",
+    "build": "npm run build -w @tienda/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "db:migrate": "npm run db:migrate -w @tienda/api",
+    "format": "prettier --write \"apps/**/*.{ts,tsx,css,html}\" \"packages/**/*.ts\" \"scripts/*.mjs\"",
+    "format:check": "prettier --check \"apps/**/*.{ts,tsx,css,html}\" \"packages/**/*.ts\" \"scripts/*.mjs\"",
+    "build:vercel": "node scripts/build-vercel.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "prettier": "^3.9.10",
+    "typescript": "^5.9.2"
+  }
+}
