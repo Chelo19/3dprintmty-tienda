@@ -14,6 +14,39 @@ HTMLDialogElement.prototype.close = function () {
 };
 const mocks = vi.hoisted(() => ({ api: vi.fn(), action: vi.fn(), download: vi.fn() }));
 vi.mock("../lib/api", () => mocks);
+it("permite editar y guardar una tarifa MSI por plazo sin sustituir otros plazos", async () => {
+  const fee = (installments: number, msi_percent: string) => ({
+    method: "MSI",
+    installments,
+    percent: "2.99",
+    fixed_cents: "100",
+    tax_percent: "16",
+    msi_percent,
+  });
+  const client = show(<Settings />, { opening_done: true, opening_date: "2026-11-10" }, (path) =>
+    path === "/fee-rules" ? [fee(3, "4.57"), fee(6, "7")] : [],
+  );
+  mocks.action.mockResolvedValue({ ok: true });
+  fireEvent.click(await screen.findByRole("button", { name: "Editar tarifa MSI 6 meses" }));
+  expect(
+    (screen.getByLabelText("Plazo MSI (meses)", { exact: false }) as HTMLInputElement).value,
+  ).toBe("6");
+  expect((screen.getByLabelText("Recargo MSI %", { exact: false }) as HTMLInputElement).value).toBe(
+    "7",
+  );
+  fireEvent.change(screen.getByLabelText("Recargo MSI %", { exact: false }), {
+    target: { value: "7.5" },
+  });
+  fireEvent.submit(screen.getByRole("button", { name: "Guardar registro" }).closest("form")!);
+  await waitFor(() =>
+    expect(mocks.action).toHaveBeenCalledWith(
+      "fee-rule",
+      expect.objectContaining({ method: "MSI", installments: "6", msi_percent: "7.5" }),
+      expect.any(String),
+    ),
+  );
+  client.clear();
+});
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();

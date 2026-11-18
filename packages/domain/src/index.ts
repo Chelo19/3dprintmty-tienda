@@ -1,6 +1,93 @@
 import Decimal from "decimal.js";
 Decimal.set({ precision: 40, rounding: Decimal.ROUND_HALF_UP });
 export { Decimal };
+export interface CardFeeRule {
+  method: string;
+  percent: string;
+  fixed_cents: string;
+  tax_percent: string;
+  installments?: number | null;
+  msi_percent?: string;
+}
+const feeMethod = (method: string) =>
+  method
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+/** One default tariff applies to both debit and credit; conflicting legacy tariffs need an explicit default. */
+export function defaultCardFeeRule(rules: CardFeeRule[]): CardFeeRule | undefined {
+  const common = rules.find((r) => ["tarjeta", "card"].includes(feeMethod(r.method)));
+  if (common) return common;
+  const legacy = rules.filter((r) =>
+    ["debito", "credito", "debit", "credit", "debit_card", "credit_card"].includes(
+      feeMethod(r.method),
+    ),
+  );
+  if (!legacy.length) return undefined;
+  const same = legacy.every(
+    (r) =>
+      new Decimal(r.percent).eq(legacy[0]!.percent) &&
+      new Decimal(r.fixed_cents).eq(legacy[0]!.fixed_cents) &&
+      new Decimal(r.tax_percent).eq(legacy[0]!.tax_percent),
+  );
+  return same ? legacy[0] : undefined;
+}
+export function cardInstallmentPlan(raw?: Record<string, unknown> | null) {
+  const type = feeMethod(String(raw?.["Installment Type"] ?? ""));
+  const count = String(raw?.Installment ?? "1").trim();
+  const installments = /^\d+$/.test(count) ? Number(count) : null;
+  const msi = type === "msi" || type.includes("sin interes");
+  return {
+    msi,
+    installments,
+    needsReview:
+      (msi && (installments === null || installments < 2 || installments > 120)) ||
+      (!msi && (installments === null || installments > 1)),
+  };
+}
+export function estimateCardFee(
+  grossCents: string,
+  rules: CardFeeRule[],
+  raw?: Record<string, unknown> | null,
+) {
+  const plan = cardInstallmentPlan(raw);
+  if (plan.needsReview) return null;
+  const rule = plan.msi
+    ? rules.find((r) => r.method === "MSI" && r.installments === plan.installments)
+    : defaultCardFeeRule(rules);
+  if (!rule || !/^\d+$/.test(grossCents)) return null;
+  if (plan.msi && rule.msi_percent == null) return null;
+  const gross = new Decimal(grossCents);
+  const base = gross.times(rule.percent).div(100).plus(rule.fixed_cents).toDecimalPlaces(0);
+  const tax = base.times(rule.tax_percent).div(100).toDecimalPlaces(0);
+  const financingBase = plan.msi
+    ? gross.times(rule.msi_percent!).div(100).toDecimalPlaces(0)
+    : new Decimal(0);
+  const financingTax = financingBase.times(rule.tax_percent).div(100).toDecimalPlaces(0);
+  const financing = financingBase.plus(financingTax);
+  const processing = base.plus(tax);
+  const total = processing.plus(financing);
+  return {
+    rule_method: rule.method,
+    percent: rule.percent,
+    fixed_cents: String(rule.fixed_cents),
+    tax_percent: rule.tax_percent,
+    base_cents: base.toFixed(0),
+    tax_cents: tax.plus(financingTax).toFixed(0),
+    processing_tax_cents: tax.toFixed(0),
+    processing_cents: processing.toFixed(0),
+    financing_base_cents: financingBase.toFixed(0),
+    financing_tax_cents: financingTax.toFixed(0),
+    financing_cents: financing.toFixed(0),
+    total_cents: total.toFixed(0),
+    installments: plan.installments,
+    msi: plan.msi,
+    msi_priced: plan.msi,
+    msi_percent: plan.msi ? rule.msi_percent! : "0",
+    deposited_cents: total.lte(gross) ? gross.minus(total).toFixed(0) : null,
+  };
+}
 export function cents(input: string): bigint {
   if (!/^\d{1,12}(\.\d{1,2})?$/.test(input))
     throw new Error("Importe inválido: usa hasta dos decimales y valores positivos.");

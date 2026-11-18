@@ -29,6 +29,7 @@ import { sql } from "drizzle-orm";
 import { AppError, type Row } from "@tienda/shared";
 import { cents, monthBounds, major } from "@tienda/domain";
 import { Database, audit, idempotent, unlocked } from "./db/database";
+import { applyCardFees } from "./modules/card-fees";
 import { env } from "./env";
 import { localMode, localToken } from "./http/auth";
 import { date, money, uuid, productInput, supplierInput } from "./modules/validation";
@@ -327,6 +328,10 @@ export class ApiController {
             return store.purchase(q, raw);
           case "purchase-reference":
             return store.purchaseReference(q, raw);
+          case "purchase-notes":
+            return store.purchaseNotes(q, raw);
+          case "apply-card-fee":
+            return applyCardFees(q, [z.object({ id: uuid }).strict().parse(raw).id], true);
           case "expense":
             return store.expense(q, raw);
           case "income":
@@ -438,10 +443,21 @@ export class ApiController {
                 fixed: money,
                 tax_percent: z.string().regex(/^\d+(\.\d{1,4})?$/),
                 msi_percent: z.string().regex(/^\d+(\.\d{1,4})?$/),
+                installments: z.coerce.number().int().min(2).max(120).optional(),
+              })
+              .superRefine((v, ctx) => {
+                if ((v.method === "MSI") !== (v.installments !== undefined))
+                  ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: ["installments"],
+                    message: "Selecciona el plazo para MSI; los otros métodos no llevan plazo.",
+                  });
               })
               .parse(raw);
             await q.query(
-              "insert into fee_rules(id,method,percent,fixed_cents,tax_percent,msi_percent) values ($1,$2,$3,$4,$5,$6) on conflict(method) do update set percent=excluded.percent,fixed_cents=excluded.fixed_cents,tax_percent=excluded.tax_percent,msi_percent=excluded.msi_percent",
+              `insert into fee_rules(id,method,percent,fixed_cents,tax_percent,msi_percent,installments) values ($1,$2,$3,$4,$5,$6,$7)
+              on conflict ${b.installments === undefined ? "(method) where installments is null" : "(method,installments) where installments is not null"}
+              do update set percent=excluded.percent,fixed_cents=excluded.fixed_cents,tax_percent=excluded.tax_percent,msi_percent=excluded.msi_percent`,
               [
                 store.id(),
                 b.method,
@@ -449,8 +465,10 @@ export class ApiController {
                 cents(b.fixed).toString(),
                 b.tax_percent,
                 b.msi_percent,
+                b.installments ?? null,
               ],
             );
+            await audit(q, "fee_rule", b.method + ":" + (b.installments ?? "standard"), "save", b);
             return { ok: true };
           }
           case "recurring": {

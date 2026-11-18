@@ -1,3 +1,4 @@
+import { Amount } from "../components/Amount";
 import { ClipSettlement } from "./clip-settlement";
 import { NOTES_MAX_LENGTH } from "@tienda/shared";
 import { useState } from "react";
@@ -204,8 +205,18 @@ export function Records({ resource, from, to }: { resource: string; from: string
         { key: "date", label: "Fecha", render: (r) => shortDate(r.date) },
         { key: "reference", label: "Referencia", render: (r) => r.reference || "Sin referencia" },
         { key: "supplier", label: "Proveedor", filterable: true },
-        { key: "total_cents", label: "Total", align: "right", render: (r) => money(r.total_cents) },
-        { key: "paid_cents", label: "Pagado", align: "right", render: (r) => money(r.paid_cents) },
+        {
+          key: "total_cents",
+          label: "Total",
+          align: "right",
+          render: (r) => <Amount value={r.total_cents} cents />,
+        },
+        {
+          key: "paid_cents",
+          label: "Pagado",
+          align: "right",
+          render: (r) => <Amount value={r.paid_cents} cents effect="expense" />,
+        },
         {
           key: "status",
           label: "Estado",
@@ -243,13 +254,13 @@ export function Records({ resource, from, to }: { resource: string; from: string
           key: "amount_cents",
           label: "Importe del gasto",
           align: "right",
-          render: (r) => money(r.amount_cents),
+          render: (r) => <Amount value={r.amount_cents} cents effect="expense" />,
         },
         {
           key: "tax_cents",
           label: "IVA acreditable",
           align: "right",
-          render: (r) => money(r.tax_cents),
+          render: (r) => <Amount value={r.tax_cents} cents />,
         },
         {
           key: "tax_mode",
@@ -257,7 +268,12 @@ export function Records({ resource, from, to }: { resource: string; from: string
           render: (r) =>
             r.tax_mode === "total_no_credit" ? "Total sin IVA acreditable" : "Con desglose",
         },
-        { key: "paid_cents", label: "Pagado", align: "right", render: (r) => money(r.paid_cents) },
+        {
+          key: "paid_cents",
+          label: "Pagado",
+          align: "right",
+          render: (r) => <Amount value={r.paid_cents} cents effect="expense" />,
+        },
         {
           key: "payment_status",
           label: "Pago",
@@ -339,24 +355,39 @@ export function Records({ resource, from, to }: { resource: string; from: string
               >
             )[r.channel] ?? r.channel,
         },
-        { key: "gross_cents", label: "Cobro", align: "right", render: (r) => money(r.gross_cents) },
+        {
+          key: "gross_cents",
+          label: "Cobro",
+          align: "right",
+          render: (r) => <Amount value={r.gross_cents} cents effect="income" />,
+        },
         {
           key: "clip_base_cents",
           label: "Base Clip",
           align: "right",
-          render: (r) => money(r.clip_base_cents),
+          render: (r) => <Amount value={r.clip_base_cents} cents />,
         },
         {
           key: "clip_financing_cents",
           label: "Cargo diferimiento",
           align: "right",
-          render: (r) => money(r.clip_financing_cents),
+          render: (r) => <Amount value={r.clip_financing_cents} cents effect="expense" />,
         },
         {
           key: "deposited_cents",
           label: "Depósito real",
           align: "right",
-          render: (r) => money(r.deposited_cents),
+          render: (r) => <Amount value={r.deposited_cents} cents effect="income" />,
+        },
+        {
+          key: "card_plan",
+          label: "Plazo de tarjeta",
+          render: (r) =>
+            r.card_plan?.msi
+              ? `${r.card_plan.installments ?? "—"} MSI`
+              : r.card_plan?.installments > 1
+                ? `${r.card_plan.installments} pagos`
+                : "Una exhibición",
         },
         {
           key: "settled_at",
@@ -368,18 +399,53 @@ export function Records({ resource, from, to }: { resource: string; from: string
                 ? "Conciliado"
                 : "Pendiente",
         },
-        { key: "net_cents", label: "Sin IVA", align: "right", render: (r) => money(r.net_cents) },
+        {
+          key: "net_cents",
+          label: "Sin IVA",
+          align: "right",
+          render: (r) => <Amount value={r.net_cents} cents effect="income" />,
+        },
         {
           key: "cogs_cents",
           label: "Costo vendido",
           align: "right",
-          render: (r) => money(r.cogs_cents),
+          render: (r) => <Amount value={r.cogs_cents} cents effect="expense" />,
         },
         {
           key: "fees_cents",
           label: "Comisión",
           align: "right",
-          render: (r) => money(r.fees_cents),
+          render: (r) =>
+            r.fees_cents == null && r.fee_estimate ? (
+              <>
+                <Amount
+                  value={r.fee_estimate.total_cents ?? r.fee_estimate.processing_cents}
+                  cents
+                  effect="expense"
+                />{" "}
+                <Badge tone="neutral">
+                  {r.fee_needs_apply && r.fee_applied
+                    ? "MSI pendiente de aplicar"
+                    : r.fee_missing_rule
+                      ? "MSI por revisar"
+                      : r.fee_applied
+                        ? "Aplicada en Clip"
+                        : "Estimada"}
+                </Badge>
+              </>
+            ) : (
+              <Amount
+                value={
+                  r.settled_at && r.processing_fee_cents != null
+                    ? (
+                        BigInt(r.processing_fee_cents) + BigInt(r.financing_withheld_cents ?? 0)
+                      ).toString()
+                    : r.fees_cents
+                }
+                cents
+                effect="expense"
+              />
+            ),
         },
         {
           key: "status",
@@ -475,9 +541,21 @@ export function Records({ resource, from, to }: { resource: string; from: string
             columns={[
               { key: "date", label: "Fecha" },
               { key: "description", label: "Venta original" },
-              { key: "gross_cents", label: "Importe con IVA", render: (r) => money(r.gross_cents) },
-              { key: "net_cents", label: "Sin IVA", render: (r) => money(r.net_cents) },
-              { key: "cogs_cents", label: "Costo devuelto", render: (r) => money(r.cogs_cents) },
+              {
+                key: "gross_cents",
+                label: "Importe con IVA",
+                render: (r) => <Amount value={r.gross_cents} cents effect="expense" />,
+              },
+              {
+                key: "net_cents",
+                label: "Sin IVA",
+                render: (r) => <Amount value={r.net_cents} cents effect="expense" />,
+              },
+              {
+                key: "cogs_cents",
+                label: "Costo devuelto",
+                render: (r) => <Amount value={r.cogs_cents} cents />,
+              },
               { key: "reason", label: "Motivo" },
             ]}
           />
@@ -549,17 +627,51 @@ export function Records({ resource, from, to }: { resource: string; from: string
                         }
                       </dt>
                       <dd>
-                        {k === "tax_mode"
-                          ? v === "total_no_credit"
-                            ? "Total sin IVA acreditable"
-                            : "Con desglose"
-                          : k.endsWith("_cents")
-                            ? money(String(v))
-                            : String(v ?? "—")}
+                        {k === "tax_mode" ? (
+                          v === "total_no_credit" ? (
+                            "Total sin IVA acreditable"
+                          ) : (
+                            "Con desglose"
+                          )
+                        ) : k.endsWith("_cents") ? (
+                          <Amount
+                            value={String(v)}
+                            cents
+                            effect={
+                              k === "paid_cents"
+                                ? "expense"
+                                : k === "recovered_cents"
+                                  ? "income"
+                                  : "neutral"
+                            }
+                          />
+                        ) : (
+                          String(v ?? "—")
+                        )}
                       </dd>
                     </div>
                   ))}
               </dl>
+              {resource === "purchases" && (
+                <Capture
+                  name="purchase-notes"
+                  submit="Guardar observaciones"
+                  onSuccess={() => setModal(null)}
+                  transform={(v) => ({ id: modal.id, notes: v.notes })}
+                >
+                  <Field
+                    label="Observaciones"
+                    hint="Hasta 20,000 caracteres. Los cambios quedan en el historial de auditoría."
+                  >
+                    <textarea
+                      name="notes"
+                      defaultValue={modal.notes ?? ""}
+                      maxLength={NOTES_MAX_LENGTH}
+                      rows={8}
+                    />
+                  </Field>
+                </Capture>
+              )}
               {resource === "purchases" && (
                 <Capture
                   name="purchase-reference"

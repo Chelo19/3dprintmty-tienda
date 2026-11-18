@@ -1,3 +1,4 @@
+import { Amount, MoneyLegend, type AmountEffect } from "../components/Amount";
 import { FiscalCards } from "./tax";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -14,7 +15,7 @@ import {
 import { useState } from "react";
 import type { Metric, Report } from "@tienda/shared";
 import { api, download } from "../lib/api";
-import { mxn, money, shortDate } from "../lib/format";
+import { mxn, shortDate } from "../lib/format";
 import { Badge, Notice, Loading, Empty } from "../components/ui";
 export function Dashboard({ from, to }: { from: string; to: string }) {
   const {
@@ -114,6 +115,7 @@ export function Dashboard({ from, to }: { from: string; to: string }) {
           </Link>
         </div>
       )}
+      <MoneyLegend />
       <div className="section-top">
         <h2>Cobros y pagos del periodo</h2>
         <Badge tone={warnings.length ? "warning" : "success"}>
@@ -128,7 +130,13 @@ export function Dashboard({ from, to }: { from: string; to: string }) {
               {label}
               <Icon size={18} />
             </div>
-            <strong className={m.value === null ? "pending-value" : ""}>{mxn(m.value)}</strong>
+            <strong>
+              <Amount
+                value={m.value}
+                effect={i === 0 ? "income" : i === 3 ? "signed" : "expense"}
+                showSign
+              />
+            </strong>
             <div className="kpi-bottom">
               {m.value === null ? (
                 <span>{m.reason ?? "Actualiza los datos del periodo."}</span>
@@ -182,14 +190,16 @@ export function Dashboard({ from, to }: { from: string; to: string }) {
                     <div className="bar-group">
                       <div
                         title={`Flujo de caja: ${mxn(m.cash)}`}
-                        className={"bar " + (Number(m.cash) < 0 ? "orange negative" : "")}
+                        className={"bar " + (Number(m.cash) < 0 ? "negative" : "positive")}
                         style={{
                           height: `${Number(m.cash) === 0 ? 0 : Math.max(2, (Math.abs(Number(m.cash)) / max) * 150)}px`,
                         }}
                       />
                     </div>
                     <span>{m.month}</span>
-                    <small>{mxn(m.cash)}</small>
+                    <small>
+                      <Amount value={m.cash} effect="signed" />
+                    </small>
                   </div>
                 );
               })}
@@ -214,12 +224,16 @@ export function Dashboard({ from, to }: { from: string; to: string }) {
             {(r.financial?.movements ?? []).map((m) => (
               <div key={m.name}>
                 <span>{m.name}</span>
-                <strong>{mxn(m.amount)}</strong>
+                <strong>
+                  <Amount value={m.amount} effect="signed" showSign />
+                </strong>
               </div>
             ))}
             <div className="result-line">
               <span>Flujo de caja disponible</span>
-              <strong>{mxn(r.cash.value)}</strong>
+              <strong>
+                <Amount value={r.cash.value} effect="signed" />
+              </strong>
             </div>
           </div>
           <p className="chart-caption">
@@ -244,7 +258,9 @@ export function Dashboard({ from, to }: { from: string; to: string }) {
               {r.categories.map((c) => (
                 <div key={c.name}>
                   <span>{c.name}</span>
-                  <strong>{mxn(c.collected)}</strong>
+                  <strong>
+                    <Amount value={c.collected} effect="income" />
+                  </strong>
                 </div>
               ))}
             </div>
@@ -293,7 +309,11 @@ export function Dashboard({ from, to }: { from: string; to: string }) {
               </p>
             </div>
           </div>
-          <MetricBars rows={r.expenseCategories} empty="Sin gastos en este periodo" />
+          <MetricBars
+            effect="expense"
+            rows={r.expenseCategories}
+            empty="Sin gastos en este periodo"
+          />
         </section>
         <section className="panel">
           <div className="panel-heading">
@@ -302,7 +322,7 @@ export function Dashboard({ from, to }: { from: string; to: string }) {
               <p>Cobros menos devoluciones del periodo · MXN</p>
             </div>
           </div>
-          <MetricBars rows={r.payments} empty="Sin cobros en este periodo" />
+          <MetricBars effect="income" rows={r.payments} empty="Sin cobros en este periodo" />
         </section>
       </div>
       <div className="dashboard-columns">
@@ -322,7 +342,9 @@ export function Dashboard({ from, to }: { from: string; to: string }) {
                     {p.reference || "Sin referencia"} · {shortDate(p.date)}
                   </small>
                 </div>
-                <strong>{money(p.total_cents)}</strong>
+                <strong>
+                  <Amount value={p.total_cents} cents />
+                </strong>
               </div>
             ))
           ) : (
@@ -346,9 +368,14 @@ export function Dashboard({ from, to }: { from: string; to: string }) {
                   </small>
                 </div>
                 <strong>
-                  {money(
-                    e.total_cents ?? (BigInt(e.amount_cents) + BigInt(e.tax_cents ?? 0)).toString(),
-                  )}
+                  <Amount
+                    value={
+                      e.total_cents ??
+                      (BigInt(e.amount_cents) + BigInt(e.tax_cents ?? 0)).toString()
+                    }
+                    cents
+                    effect="expense"
+                  />
                 </strong>
               </div>
             ))
@@ -367,7 +394,15 @@ const unavailable: Metric = {
   reason: "Actualiza el resumen financiero.",
 };
 
-function MetricBars({ rows, empty }: { rows: any[]; empty: string }) {
+function MetricBars({
+  rows,
+  empty,
+  effect = "neutral",
+}: {
+  rows: any[];
+  empty: string;
+  effect?: AmountEffect;
+}) {
   const max = Math.max(...rows.map((r) => Math.abs(Number(r.amount))), 1);
   return rows.length ? (
     <div className="metric-bars">
@@ -375,13 +410,20 @@ function MetricBars({ rows, empty }: { rows: any[]; empty: string }) {
         <div key={r.name}>
           <div>
             <span>{r.name}</span>
-            <strong>{mxn(r.amount)}</strong>
+            <strong>
+              <Amount value={r.amount} effect={effect} />
+            </strong>
           </div>
           <div className="metric-track">
             <span
               style={{
                 width: (Math.abs(Number(r.amount)) / max) * 100 + "%",
-                background: Number(r.amount) < 0 ? "#dc2626" : undefined,
+                background:
+                  Number(r.amount) < 0 || effect === "expense"
+                    ? "var(--money-negative)"
+                    : effect === "income"
+                      ? "var(--money-positive)"
+                      : undefined,
               }}
             />
           </div>

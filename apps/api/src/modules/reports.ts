@@ -3,7 +3,7 @@ import { externalCost, fiscalSummary, sourceSummary } from "./tax";
 import { summaryCost, previousDay } from "./summary-inventory";
 import { type Query } from "../db/database";
 import { type Metric, type Report, type Row } from "@tienda/shared";
-import { sum, major, margin, Decimal } from "@tienda/domain";
+import { sum, major, margin, Decimal, cardInstallmentPlan } from "@tienda/domain";
 const metric = (v: bigint | null, reason?: string): Metric => ({
   value: v === null ? null : major(v),
   status: v === null ? "no_disponible" : reason ? "parcial" : "completo",
@@ -413,6 +413,31 @@ export async function report(q: Query, from: string, to: string): Promise<Report
     );
   if (pendingRecoveries)
     financialWarnings.push("Hay pagos de compras o gastos cancelados pendientes de recuperar.");
+  if (pendingClip.length) {
+    const termRules = (
+      await q.query(
+        "select installments from fee_rules where method='MSI' and installments is not null",
+      )
+    ).rows;
+    const appliedMsi = new Set(
+      (await q.query("select income_id from income_msi_fee_estimates")).rows.map(
+        (r) => r.income_id,
+      ),
+    );
+    const missing = [
+      ...new Set(
+        pendingClip
+          .filter((r) => !appliedMsi.has(r.id))
+          .map((r) => cardInstallmentPlan(r.clip_financial_raw))
+          .filter((p) => p.msi && !termRules.some((r) => r.installments === p.installments))
+          .map((p) => p.installments ?? "desconocido"),
+      ),
+    ];
+    if (missing.length)
+      financialWarnings.push(
+        `Falta configurar tarifa MSI para estos plazos: ${missing.join(", ")} meses. Revisa las reglas de comisión.`,
+      );
+  }
   if (overlapping)
     financialWarnings.push(
       "Se excluyeron consolidados que cruzan el rango. Consulta su periodo completo.",

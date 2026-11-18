@@ -110,6 +110,8 @@ El propietario reitera que esta herramienta es financiera: el detalle por produc
 
 **Dashboard vigente:** no solicitar costo vendido ni presentar utilidad, márgenes, resultado operativo o resultado después de ISR. Mostrar cobros registrados (incluyendo Clip), compras pagadas, gastos y activos pagados y flujo disponible de Efectivo/Banco. Gráfica, desglose y exportación usan movimientos efectivos con sus signos; las transferencias internas se compensan. Excluir apertura, aportaciones y retiros del flujo de operación. Mantener estimaciones fiscales de la tienda y alertas reales de conciliación, devoluciones y recuperaciones, sin marcar el dashboard incompleto por costos no capturados. El costo mensual externo permanece como opción fuera del dashboard, sin ser requisito de esta vista.
 
+**Convención visual de importes:** verde para entradas y valores a favor; rojo para salidas, cargos y valores negativos; negro para totales, referencias y saldos positivos; gris para cero o pendiente. Mostrar signos en movimientos y en indicadores de flujo para no depender solo del color. Una compra registrada sin pago conserva un total de referencia; no inventar una salida por colorearla. Los formatos y colores son de presentación y no cambian importes, movimientos ni exportaciones.
+
 ## 5. Integración con Clip
 
 La prioridad es evitar duplicar manualmente la captura de ventas.
@@ -339,7 +341,13 @@ Ejemplo:
 - IVA sobre comisión, cuando corresponda.
 - Costo adicional de promociones MSI.
 
-No utilizar una comisión fija universal para todas las operaciones.
+**Decisión vigente:** usar una tarifa predeterminada común para todas las tarjetas, débito y crédito, sin aplicarla a efectivo ni transferencias. La regla `Tarjeta` tiene prioridad; si solo existe una tarifa de Crédito o Débito (o ambas tienen los mismos valores), reutilizarla para ambas. Si las tarifas antiguas son distintas y no hay regla común, solicitar configurar `Tarjeta`, sin elegir arbitrariamente.
+
+Calcular la comisión estimada como porcentaje del total cobrado más cargo fijo, redondeado al centavo, más su IVA redondeado al centavo. Mostrarla en ingresos importados pendientes, incluidos los existentes, sin alterar los datos originales ni marcarla como comisión real. Precargar procesamiento, IVA y depósito neto propuesto al conciliar; permitir corregir importes antes de confirmar. Los cargos adicionales por financiamiento requieren revisión separada. No crear depósitos ni gastos al consultar las estimaciones. La liquidación real confirmada tiene prioridad y no se recalcula al cambiar tarifas; el IVA requiere comprobación fiscal antes de acreditarse.
+
+**Descuento de la tarifa en Clip:** al importar una venta con tarjeta y tarifa configurada, conservar el cobro bruto y agregar una salida independiente por comisión con IVA en Clip. Guardar la tarifa aplicada como snapshot inmutable; las reimportaciones y los cambios posteriores de configuración no vuelven a descontarla. Para ventas previas con cobro original permitir una aplicación explícita, auditada y sujeta a cierres, sin modificar venta ni cobro. Al conciliar el depósito real a Banco, ajustar únicamente la diferencia entre comisión aplicada y cargos reales totales, con signo positivo o negativo, para no duplicar cargos y dejar Clip liquidado. Mantener el IVA pendiente de comprobación fiscal y no crear un gasto manual adicional.
+
+**MSI por plazo:** leer `Installment Type = MSI` y el número `Installment` del CSV, incluso cuando `Deferral Comission` sea cero. Las reglas MSI se configuran por plazo exacto (3, 6, 9, 12 u otro entre 2 y 120 meses), con porcentaje base, cargo fijo, IVA y recargo MSI propios. El propietario confirmó que su regla MSI de recargo 4.57% corresponde a 3 meses. No usar esa regla en otros plazos ni adivinar tarifas faltantes. El procesamiento se calcula como porcentaje base del total cobrado más cargo fijo, con su IVA; el financiamiento MSI es el porcentaje adicional del mismo cobro, con su IVA, redondeados por componente al centavo. Registrar los cargos como salidas separadas de Clip con snapshots inmutables. En ventas previas que ya tenían el procesamiento descontado agregar únicamente el cargo MSI pendiente, sin modificar la venta, el cobro ni la comisión base. Mostrar y alertar plazos sin tarifa. Conciliar transfiriendo el neto y ajustando únicamente diferencias con el total real retenido. Un financiamiento que no esté identificado como MSI requiere revisión manual.
 
 Priorizar el importe real cobrado por Clip cuando esté disponible.
 

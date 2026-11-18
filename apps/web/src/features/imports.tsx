@@ -1,3 +1,4 @@
+import { Amount } from "../components/Amount";
 import { inferImportPaymentType, type ImportPaymentType } from "@tienda/shared";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -336,7 +337,9 @@ export function Imports() {
             </div>
             <div>
               <span>Importe de ventas nuevas activas</span>
-              <strong>{mxn(batch.total)}</strong>
+              <strong>
+                <Amount value={batch.total} effect="income" />
+              </strong>
             </div>
           </div>
           <p className="tiny muted">
@@ -366,15 +369,39 @@ export function Imports() {
             columns={[
               { key: "external_id", label: "ID" },
               { key: "date", label: "Fecha" },
-              { key: "gross", label: "Total cobrado", render: (r) => mxn(r.gross) },
-              { key: "clip_base", label: "Base Clip", render: (r) => mxn(r.clip_base) },
-              { key: "clip_tip", label: "Propina", render: (r) => mxn(r.clip_tip) },
+              {
+                key: "gross",
+                label: "Total cobrado",
+                render: (r) => <Amount value={r.gross} effect="income" />,
+              },
+              {
+                key: "clip_base",
+                label: "Base Clip",
+                render: (r) => <Amount value={r.clip_base} />,
+              },
+              {
+                key: "clip_tip",
+                label: "Propina",
+                render: (r) => <Amount value={r.clip_tip} effect="income" />,
+              },
               {
                 key: "clip_financing",
                 label: "Cargo diferimiento",
-                render: (r) => mxn(r.clip_financing),
+                render: (r) => <Amount value={r.clip_financing} effect="expense" />,
               },
-              { key: "fees", label: "Comisión real", render: (r) => mxn(r.fees) },
+              {
+                key: "fees",
+                label: "Comisión real",
+                render: (r) => <Amount value={r.fees} effect="expense" />,
+              },
+              {
+                key: "installment_plan",
+                label: "Plazo del reporte",
+                render: (r) =>
+                  r.clip_financial_raw?.["Installment Type"]
+                    ? `${r.clip_financial_raw.Installment ?? "—"} · ${r.clip_financial_raw["Installment Type"]}`
+                    : "Una exhibición",
+              },
               {
                 key: "method",
                 label: "Método",
@@ -412,7 +439,11 @@ export function Imports() {
                     }[selectedType(r) as ImportPaymentType] ?? "Sin identificar")
                   ),
               },
-              { key: "net", label: "Sin IVA", render: (r) => mxn(r.net) },
+              {
+                key: "net",
+                label: "Sin IVA",
+                render: (r) => <Amount value={r.net} effect="income" />,
+              },
               { key: "clip_status", label: "Estatus de Clip" },
               { key: "status", label: "Estado" },
               {

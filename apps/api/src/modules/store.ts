@@ -2,7 +2,17 @@ import { effectiveNet } from "./tax-math";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { AppError, NOTES_MAX_LENGTH, type Row } from "@tienda/shared";
-import { cents, Decimal, allocate, lineCost, outflowCost, major } from "@tienda/domain";
+import {
+  cents,
+  Decimal,
+  allocate,
+  lineCost,
+  outflowCost,
+  major,
+  estimateCardFee,
+  cardInstallmentPlan,
+  type CardFeeRule,
+} from "@tienda/domain";
 import { type Query, audit, unlocked } from "../db/database";
 import { date, money, quantity, uuid, incomeInput, initialPaymentInput } from "./validation";
 export const id = () => randomUUID();
@@ -260,6 +270,25 @@ export async function purchaseReference(q: Query, raw: unknown) {
     after: { reference: b.reference },
   });
   return { id: b.id, reference: b.reference };
+}
+
+/** Descriptive corrections do not change amounts, payments or closed-period calculations. */
+export async function purchaseNotes(q: Query, raw: unknown) {
+  const b = z
+    .object({ id: uuid, notes: z.string().max(NOTES_MAX_LENGTH) })
+    .strict()
+    .parse(raw);
+  const before = (await q.query("select notes from purchases where id=$1 for update", [b.id]))
+    .rows[0];
+  if (!before) throw new AppError("not_found", "No existe la compra.", 404);
+  if (before.notes !== b.notes) {
+    await q.query("update purchases set notes=$1 where id=$2", [b.notes, b.id]);
+    await audit(q, "purchase", b.id, "update_notes", {
+      before: { notes: before.notes },
+      after: { notes: b.notes },
+    });
+  }
+  return { id: b.id, notes: b.notes };
 }
 
 export async function expense(q: Query, raw: unknown) {
@@ -625,21 +654,102 @@ export async function list(q: Query, resource: string): Promise<Row[]> {
       const enabled =
         (await q.query("select fiscal_profile from settings")).rows[0]?.fiscal_profile ===
         "resico_pf_16";
-      return enabled
-        ? rows.map((r) => {
-            const net = effectiveNet(r);
-            return {
-              ...r,
-              net_calculated: r.net_cents === null && net !== null,
-              net_cents: net,
-              vat_cents: net === null ? null : (BigInt(r.gross_cents) - BigInt(net)).toString(),
-              fees_cents:
-                r.fees_cents === null && r.source === "clip_import" && r.channel !== "clip"
-                  ? "0"
-                  : r.fees_cents,
-            };
-          })
-        : rows;
+      const rules = (
+        await q.query(
+          "select method,percent,fixed_cents,tax_percent,msi_percent,installments from fee_rules",
+        )
+      ).rows as CardFeeRule[];
+      const appliedFees = new Map(
+        (await q.query("select * from income_card_fee_estimates")).rows.map((r) => [
+          r.income_id,
+          r,
+        ]),
+      );
+      const appliedMsiFees = new Map(
+        (await q.query("select * from income_msi_fee_estimates")).rows.map((r) => [r.income_id, r]),
+      );
+      return rows.map((r) => {
+        const appliedFee = appliedFees.get(r.id);
+        const msiFee = appliedMsiFees.get(r.id),
+          plan = cardInstallmentPlan(r.clip_financial_raw);
+        const pendingCard =
+          r.status === "active" &&
+          BigInt(r.gross_cents) > 0n &&
+          r.channel === "clip" &&
+          r.source !== "manual_summary" &&
+          !r.settled_at &&
+          r.fees_cents === null;
+        const proposed = pendingCard
+          ? estimateCardFee(String(r.gross_cents), rules, r.clip_financial_raw)
+          : null;
+        let fee_estimate: Row | null = proposed;
+        const charged =
+          BigInt(appliedFee?.processing_cents ?? 0) + BigInt(msiFee?.financing_cents ?? 0);
+        if (pendingCard && appliedFee) {
+          const financing = BigInt(msiFee?.financing_cents ?? proposed?.financing_cents ?? 0),
+            financingTax = BigInt(msiFee?.tax_cents ?? proposed?.financing_tax_cents ?? 0);
+          const total = BigInt(appliedFee.processing_cents) + financing;
+          fee_estimate = {
+            ...appliedFee.rule_snapshot,
+            msi: plan.msi,
+            installments: plan.installments,
+            msi_priced: !!msiFee || !!proposed?.msi,
+            msi_percent: msiFee?.rule_snapshot.msi_percent ?? proposed?.msi_percent ?? "0",
+            processing_cents: appliedFee.processing_cents,
+            processing_tax_cents: appliedFee.tax_cents,
+            financing_cents: financing.toString(),
+            financing_tax_cents: financingTax.toString(),
+            financing_tax_percent:
+              msiFee?.rule_snapshot.tax_percent ?? proposed?.tax_percent ?? null,
+            tax_cents: (BigInt(appliedFee.tax_cents) + financingTax).toString(),
+            total_cents: total.toString(),
+            deposited_cents:
+              total <= BigInt(r.gross_cents) ? (BigInt(r.gross_cents) - total).toString() : null,
+          };
+        } else if (fee_estimate) fee_estimate = { ...fee_estimate, msi_priced: !!fee_estimate.msi };
+        const feeFields = {
+          fee_estimate,
+          applied_fee_breakdown: appliedFee
+            ? {
+                ...appliedFee.rule_snapshot,
+                processing_cents: appliedFee.processing_cents,
+                processing_tax_cents: appliedFee.tax_cents,
+                financing_cents: msiFee?.financing_cents ?? "0",
+                financing_tax_cents: msiFee?.tax_cents ?? "0",
+                financing_tax_percent: msiFee?.rule_snapshot.tax_percent ?? null,
+                tax_cents: (
+                  BigInt(appliedFee.tax_cents) + BigInt(msiFee?.tax_cents ?? 0)
+                ).toString(),
+                total_cents: charged.toString(),
+                deposited_cents: (BigInt(r.gross_cents) - charged).toString(),
+                msi: !!msiFee,
+                installments: msiFee?.installments ?? 1,
+                msi_percent: msiFee?.rule_snapshot.msi_percent ?? "0",
+              }
+            : null,
+          fee_applied: !!appliedFee,
+          msi_fee_applied: !!msiFee,
+          fee_applied_cents: charged.toString(),
+          fee_net_applied_cents: (BigInt(r.gross_cents) - charged).toString(),
+          card_plan: plan,
+          fee_missing_rule: pendingCard && !proposed && !msiFee && (plan.msi || plan.needsReview),
+          fee_needs_apply:
+            pendingCard && !!fee_estimate && (!appliedFee || (plan.msi && !msiFee && !!proposed)),
+        };
+        if (!enabled) return { ...r, ...feeFields };
+        const net = effectiveNet(r);
+        return {
+          ...r,
+          ...feeFields,
+          net_calculated: r.net_cents === null && net !== null,
+          net_cents: net,
+          vat_cents: net === null ? null : (BigInt(r.gross_cents) - BigInt(net)).toString(),
+          fees_cents:
+            r.fees_cents === null && r.source === "clip_import" && r.channel !== "clip"
+              ? "0"
+              : r.fees_cents,
+        };
+      });
     }
     case "inventory":
       return (

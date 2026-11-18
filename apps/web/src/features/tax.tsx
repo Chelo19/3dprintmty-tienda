@@ -1,3 +1,4 @@
+import { Amount } from "../components/Amount";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -47,7 +48,18 @@ export function FiscalCards({
             <Badge tone={m?.status === "completo" ? "success" : "warning"}>
               {m?.status ?? "pendiente"}
             </Badge>
-            <strong>{mxn(m?.value)}</strong>
+            <strong>
+              <Amount
+                value={m?.value}
+                effect={
+                  label.includes("por pagar") || label.includes("antes de retenciones")
+                    ? "expense"
+                    : label.includes("acreditable") || label.includes("a favor")
+                      ? "income"
+                      : "neutral"
+                }
+              />
+            </strong>
           </div>
         ))}
       </div>
@@ -104,7 +116,20 @@ export function SourceCards({ report }: { report: Report }) {
         ].map(([label, m]: any) => (
           <div key={label}>
             <span>{label}</span>
-            <strong>{mxn(m.value)}</strong>
+            <strong>
+              <Amount
+                value={m.value}
+                effect={
+                  label.startsWith("Pagos")
+                    ? "expense"
+                    : label.startsWith("Recuperaciones")
+                      ? "income"
+                      : label.startsWith("Flujo")
+                        ? "signed"
+                        : "neutral"
+                }
+              />
+            </strong>
           </div>
         ))}
       </div>
@@ -363,9 +388,21 @@ export function TaxPage({ from }: { from: string }) {
                 )[r.type],
             },
             { key: "label", label: "Referencia / concepto" },
-            { key: "total_cents", label: "Total original", render: (r) => money(r.total_cents) },
-            { key: "paid_cents", label: "Pagado", render: (r) => money(r.paid_cents) },
-            { key: "vat_cents", label: "IVA registrado", render: (r) => money(r.vat_cents) },
+            {
+              key: "total_cents",
+              label: "Total original",
+              render: (r) => <Amount value={r.total_cents} cents />,
+            },
+            {
+              key: "paid_cents",
+              label: "Pagado",
+              render: (r) => <Amount value={r.paid_cents} cents effect="expense" />,
+            },
+            {
+              key: "vat_cents",
+              label: "IVA registrado",
+              render: (r) => <Amount value={r.vat_cents} cents />,
+            },
             {
               key: "proof",
               label: "Tratamiento",

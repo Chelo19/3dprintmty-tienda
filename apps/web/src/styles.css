@@ -10,11 +10,40 @@
   --color-muted: #64748b;
 }
 :root {
+  --money-positive: #15803d;
+  --money-negative: #b91c1c;
+  --money-neutral: #0f172a;
+  --money-muted: #64748b;
   font-family: var(--font-sans);
   color: #1e293b;
   background: #f8fafc;
   font-size: 13px;
   font-synthesis: none;
+}
+.money-positive {
+  color: var(--money-positive);
+}
+.money-negative {
+  color: var(--money-negative);
+}
+.money-neutral {
+  color: var(--money-neutral);
+}
+.money-muted {
+  color: var(--money-muted);
+}
+.money-value {
+  font-variant-numeric: tabular-nums;
+}
+.money-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  font-size: 11px;
+  margin: 12px 0 18px;
+}
+.bar.positive {
+  background: var(--money-positive);
 }
 * {
   box-sizing: border-box;
@@ -716,7 +745,7 @@ input::placeholder {
   border-radius: 3px 3px 0 0;
 }
 .bar.negative {
-  background: #dc2626;
+  background: var(--money-negative);
 }
 .chart-column small {
   font-size: 8px;

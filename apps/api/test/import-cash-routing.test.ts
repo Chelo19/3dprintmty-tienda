@@ -199,4 +199,39 @@ describe.sequential("Cobros automáticos y reimportación inmutable", () => {
     expect((await post("confirm-import", { id: b.id })).status).toBe(201);
     expect(await snapshot()).toEqual(before);
   });
+  it("usa la misma tarifa en débito y crédito, incluidas ventas ya importadas, sin registrar depósitos ni alterar ingresos", async () => {
+    const b = await preview([
+      row("fee-credit", "credit_card", { "Paid Amount": "100" }),
+      row("fee-debit", "debit_card", { "Paid Amount": "100" }),
+    ]);
+    expect((await post("confirm-import", { id: b.id })).status).toBe(201);
+    expect(
+      (
+        await post("fee-rule", {
+          method: "Crédito",
+          percent: "2.99",
+          fixed: "1",
+          tax_percent: "16",
+          msi_percent: "0",
+        })
+      ).status,
+    ).toBe(201);
+    const before = await snapshot();
+    const getIncomes = () =>
+      request(app.getHttpServer())
+        .get("/api/v1/incomes")
+        .set("Authorization", "Bearer " + token);
+    const data = (await getIncomes()).body;
+    for (const key of ["clip:fee-credit", "clip:fee-debit"])
+      expect(data.find((r: any) => r.external_id === key)).toMatchObject({
+        fees_cents: null,
+        settled_at: null,
+        fee_estimate: { processing_cents: "463", tax_cents: "64", deposited_cents: "9537" },
+      });
+    expect(data.find((r: any) => r.external_id === "clip:card").fee_estimate).not.toBeNull();
+    expect(data.find((r: any) => r.external_id === "clip:cash").fee_estimate).toBeNull();
+    expect(data.find((r: any) => r.external_id === "clip:spei").fee_estimate).toBeNull();
+    await getIncomes();
+    expect(await snapshot()).toEqual(before);
+  });
 });

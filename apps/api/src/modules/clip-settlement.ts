@@ -68,13 +68,32 @@ export async function settleClip(q: Query, raw: unknown) {
       409,
     );
   const cash = (await q.query("select * from cash_movements where income_id=$1", [item.id])).rows;
+  const appliedFee = (
+    await q.query("select * from income_card_fee_estimates where income_id=$1", [item.id])
+  ).rows[0];
   let cashId: string | null = null;
-  const entry = cash[0];
+  const appliedMsi = (
+    await q.query("select * from income_msi_fee_estimates where income_id=$1", [item.id])
+  ).rows[0];
+  const entry = cash.find((r) => r.kind === "collection");
+  const estimatedEntry = appliedFee?.cash_id ? cash.find((r) => r.id === appliedFee.cash_id) : null;
+  const msiEntry = appliedMsi?.cash_id ? cash.find((r) => r.id === appliedMsi.cash_id) : null;
   const heldInClip =
-    cash.length === 1 &&
+    cash.length === 1 + (appliedFee?.cash_id ? 1 : 0) + (appliedMsi?.cash_id ? 1 : 0) &&
     entry?.kind === "collection" &&
     entry.account_id === "clip" &&
-    entry.amount_cents === item.gross_cents;
+    entry.amount_cents === item.gross_cents &&
+    (!appliedMsi ||
+      !appliedMsi.cash_id ||
+      (msiEntry?.kind === "clip_msi_fee_estimate" &&
+        msiEntry.account_id === "clip" &&
+        msiEntry.amount_cents === (-BigInt(appliedMsi.financing_cents)).toString())) &&
+    (!appliedFee ||
+      (entry.id === item.import_collection_id &&
+        (!appliedFee.cash_id ||
+          (estimatedEntry?.kind === "clip_fee_estimate" &&
+            estimatedEntry.account_id === "clip" &&
+            estimatedEntry.amount_cents === (-BigInt(appliedFee.processing_cents)).toString()))));
   if (heldInClip) {
     if (b.date < entry!.date)
       throw new AppError(
@@ -100,7 +119,21 @@ export async function settleClip(q: Query, raw: unknown) {
       );
     }
     const retained = processing + financing;
-    if (retained > 0n)
+    if (appliedFee) {
+      const adjustment =
+        BigInt(appliedFee.processing_cents) + BigInt(appliedMsi?.financing_cents ?? 0) - retained;
+      if (adjustment !== 0n)
+        await q.query(
+          "insert into cash_movements(id,date,account_id,amount_cents,kind,income_id,notes) values ($1,$2,'clip',$3,'clip_fee_adjustment',$4,$5)",
+          [
+            id(),
+            b.date,
+            adjustment.toString(),
+            item.id,
+            "Ajuste a cargos reales de Clip · " + b.reference,
+          ],
+        );
+    } else if (retained > 0n)
       await q.query(
         "insert into cash_movements(id,date,account_id,amount_cents,kind,income_id,notes) values ($1,$2,'clip',$3,'clip_fee',$4,$5)",
         [id(), b.date, (-retained).toString(), item.id, "Cargos retenidos Clip · " + b.reference],

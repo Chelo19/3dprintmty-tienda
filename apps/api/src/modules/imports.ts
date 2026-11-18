@@ -1,4 +1,5 @@
 import { effectiveNet } from "./tax-math";
+import { applyCardFees } from "./card-fees";
 import { clipAmounts } from "./import-income";
 import ExcelJS from "exceljs";
 import { Readable } from "node:stream";
@@ -439,6 +440,10 @@ export async function confirm(
     );
   }
   // Preserve the chosen payment types in the confirmed batch for review and audit.
+  const cardFees = await applyCardFees(
+    q,
+    receipts.filter((r) => r.account_id === "clip").map((r) => r.income_id),
+  );
   const chosenById = new Map(fresh.map((r) => [r.external_id, r]));
   await q.query("update imports set status='confirmed',rows=$2 where id=$1", [
     iid,
@@ -455,6 +460,7 @@ export async function confirm(
     skipped_count: batch.duplicates,
     after: prepared,
     receipts,
+    card_fees: cardFees,
   });
   return {
     id: iid,

@@ -1,12 +1,14 @@
+import { Amount, MoneyLegend } from "../components/Amount";
 import { FiscalCards } from "./tax";
+import { FeeRuleFields } from "./fee-rule-fields";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { Plus, Download, LockKeyhole, ShieldCheck, Wallet } from "lucide-react";
 import { NOTES_MAX_LENGTH, type Report } from "@tienda/shared";
-import { monthBounds, Decimal } from "@tienda/domain";
+import { monthBounds, Decimal, defaultCardFeeRule } from "@tienda/domain";
 import { api, download } from "../lib/api";
-import { money, mxn, today, shortDate } from "../lib/format";
+import { money, today, shortDate } from "../lib/format";
 import { useRows, Select } from "./records";
 import {
   Notice,
@@ -52,6 +54,7 @@ export function Cash({ from, to }: { from: string; to: string }) {
         </div>
       </div>
       {error && <Notice tone="error">{error}</Notice>}
+      <MoneyLegend />
       <div className="kpi-grid three">
         {accounts.data?.map((a) => (
           <article className="kpi" key={a.id}>
@@ -59,7 +62,9 @@ export function Cash({ from, to }: { from: string; to: string }) {
               {a.name}
               <Wallet size={18} />
             </div>
-            <strong>{money(a.balance_cents)}</strong>
+            <strong>
+              <Amount value={a.balance_cents} cents />
+            </strong>
             <small>
               {a.kind === "pending"
                 ? "Pendiente de depósito · no efectivo disponible"
@@ -70,16 +75,17 @@ export function Cash({ from, to }: { from: string; to: string }) {
       </div>
       <Notice>
         Las nuevas ventas importadas registran su cobro automáticamente: Efectivo en Efectivo,
-        Tarjeta en Clip por liquidar y Transferencia en Banco. Las existentes se omiten al
-        reimportar. Para liquidar tarjetas usa Ingresos → abrir transacción → Conciliar depósito; se
-        descuenta de Clip el neto depositado y los cargos retenidos. No registres otra vez esos
-        cobros ni sus comisiones. Las ventas históricas sin movimiento se revisan por separado.
+        Tarjeta en Clip por liquidar, descontando por separado su comisión configurada con IVA, y
+        Transferencia en Banco. Las existentes se omiten al reimportar. Para liquidar tarjetas usa
+        Ingresos → abrir transacción → Conciliar depósito; se transfiere el neto a Banco y ajusta la
+        diferencia entre la comisión aplicada y los cargos reales. No registres otra vez esos cobros
+        ni sus comisiones. Las ventas históricas sin movimiento se revisan por separado.
       </Notice>
       <DataTable
         rows={(rows.data ?? []).filter((r) => r.date >= from && r.date < to)}
         columns={[
           { key: "date", label: "Fecha", render: (r) => shortDate(r.date) },
-          { key: "account", label: "Cuenta" },
+          { key: "account", label: "Cuenta", filterable: true },
           {
             key: "kind",
             label: "Movimiento",
@@ -90,6 +96,9 @@ export function Cash({ from, to }: { from: string; to: string }) {
                   collection: "Cobro",
                   transfer: "Transferencia",
                   clip_fee: "Cargos retenidos Clip",
+                  clip_fee_estimate: "Comisión de tarjeta aplicada",
+                  clip_msi_fee_estimate: "Comisión MSI aplicada",
+                  clip_fee_adjustment: "Ajuste de comisión Clip",
                 }) as Record<string, string>
               )[r.kind] ?? r.kind,
           },
@@ -98,7 +107,7 @@ export function Cash({ from, to }: { from: string; to: string }) {
             key: "amount_cents",
             label: "Importe",
             align: "right",
-            render: (r) => money(r.amount_cents),
+            render: (r) => <Amount value={r.amount_cents} cents effect="signed" showSign />,
           },
         ]}
       />
@@ -262,7 +271,18 @@ export function Reports({ from, to }: { from: string; to: string }) {
             <div key={name}>
               <span>{name}</span>
               <Badge tone={m.status === "completo" ? "success" : "warning"}>{m.status}</Badge>
-              <strong>{mxn(m.value)}</strong>
+              <strong>
+                <Amount
+                  value={m.value}
+                  effect={
+                    ["Costo vendido", "Comisiones", "Gastos operativos"].includes(name)
+                      ? "expense"
+                      : name === "Ventas netas"
+                        ? "income"
+                        : "signed"
+                  }
+                />
+              </strong>
             </div>
           ))}
         </div>
@@ -430,7 +450,18 @@ export function Closes() {
               ].map(([label, m]: any) => (
                 <div key={label}>
                   <span>{label}</span>
-                  <strong>{mxn(m?.value)}</strong>
+                  <strong>
+                    <Amount
+                      value={m?.value}
+                      effect={
+                        ["Costo vendido", "Comisiones", "Gastos operativos"].includes(label)
+                          ? "expense"
+                          : label === "Ventas netas"
+                            ? "income"
+                            : "signed"
+                      }
+                    />
+                  </strong>
                 </div>
               ))}
             </div>
@@ -459,6 +490,7 @@ export function Settings() {
     templates = useRows("templates");
   const [open, setOpen] = useState(""),
     [saved, setSaved] = useState(false);
+  const [feeEditor, setFeeEditor] = useState<{ method: string; installments?: number | null }>();
   const s = settings.data;
   return (
     <>
@@ -532,23 +564,69 @@ export function Settings() {
       </section>
       <div className="section-top">
         <h2>Reglas de comisión por método</h2>
-        <button className="button" onClick={() => setOpen("fee-rule")}>
+        <button
+          className="button"
+          onClick={() => {
+            setFeeEditor(undefined);
+            setOpen("fee-rule");
+          }}
+        >
           <Plus size={16} /> Configurar
         </button>
       </div>
       <DataTable
         rows={fees.data ?? []}
         columns={[
-          { key: "method", label: "Método" },
+          {
+            key: "method",
+            label: "Método",
+            render: (r) => (
+              <>
+                {r.method}{" "}
+                {defaultCardFeeRule(fees.data ?? [])?.method === r.method && (
+                  <Badge tone="neutral">Predeterminada para tarjetas</Badge>
+                )}
+              </>
+            ),
+          },
           { key: "percent", label: "Comisión %" },
           { key: "fixed_cents", label: "Fija", render: (r) => money(r.fixed_cents) },
           { key: "tax_percent", label: "IVA comisión %" },
           { key: "msi_percent", label: "Adicional MSI %" },
+          {
+            key: "installments",
+            label: "Plazo",
+            render: (r) =>
+              r.method === "MSI"
+                ? r.installments
+                  ? `${r.installments} meses`
+                  : "Sin plazo · revisar"
+                : "—",
+          },
+          {
+            key: "edit_fee",
+            label: "",
+            render: (r) => (
+              <button
+                className="text-button"
+                onClick={() => {
+                  setFeeEditor({ method: r.method, installments: r.installments });
+                  setOpen("fee-rule");
+                }}
+              >
+                Editar tarifa{r.installments ? ` MSI ${r.installments} meses` : ""}
+              </button>
+            ),
+          },
         ]}
       />
       <Notice>
-        Las reglas sirven como referencia de estimación. La comisión real de Clip tiene prioridad;
-        las comisiones pendientes no se convierten automáticamente en un gasto adicional.
+        La tarifa Tarjeta se aplica por defecto a débito y crédito. Si solo hay una tarifa de Débito
+        o Crédito, se usa para ambas. Se muestran la comisión y su IVA estimados y se precargan al
+        conciliar; los cargos reales de Clip tienen prioridad. Al importar se descuenta la comisión
+        con IVA de Clip, conservando el cobro bruto. En MSI se agrega el recargo del plazo exacto
+        indicado en el CSV. Si no está configurado, queda pendiente para revisión. El depósito a
+        Banco se confirma por separado.
       </Notice>
       <div className="section-top">
         <h2>Gastos recurrentes</h2>
@@ -636,55 +714,7 @@ export function Settings() {
                 </Field>
               </>
             )}
-            {open === "fee-rule" && (
-              <div className="form-grid">
-                <Field label="Método">
-                  <select name="method">
-                    <option>Débito</option>
-                    <option>Crédito</option>
-                    <option>MSI</option>
-                    <option>SPEI</option>
-                    <option>Efectivo</option>
-                  </select>
-                </Field>
-                <Field label="Porcentaje base">
-                  <input
-                    name="percent"
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.0001"
-                    defaultValue="0"
-                    required
-                  />
-                </Field>
-                <Field label="Comisión fija">
-                  <MoneyInput name="fixed" defaultValue="0" required />
-                </Field>
-                <Field label="IVA sobre comisión %">
-                  <input
-                    name="tax_percent"
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.0001"
-                    defaultValue="0"
-                    required
-                  />
-                </Field>
-                <Field label="Recargo MSI %">
-                  <input
-                    name="msi_percent"
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.0001"
-                    defaultValue="0"
-                    required
-                  />
-                </Field>
-              </div>
-            )}
+            {open === "fee-rule" && <FeeRuleFields rules={fees.data ?? []} initial={feeEditor} />}
             {open === "recurring" && (
               <>
                 <Field label="Plantilla">
