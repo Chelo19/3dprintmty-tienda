@@ -14,6 +14,7 @@ export async function report(q: Query, from: string, to: string): Promise<Report
     r.fees_cents !== null &&
     (r.channel !== "clip" ||
       r.source === "manual_summary" ||
+      r.fee_calculated ||
       (!!r.settled_at && r.settlement_date < to));
 
   const incomes = (
@@ -22,6 +23,39 @@ export async function report(q: Query, from: string, to: string): Promise<Report
       [from, to],
     )
   ).rows;
+  const appliedFees = new Map(
+    (await q.query("select * from income_card_fee_estimates where date<$1", [to])).rows.map((r) => [
+      r.income_id,
+      r,
+    ]),
+  );
+  const appliedMsiFees = new Map(
+    (await q.query("select * from income_msi_fee_estimates where date<$1", [to])).rows.map((r) => [
+      r.income_id,
+      r,
+    ]),
+  );
+  for (const income of incomes) {
+    const base = appliedFees.get(income.id),
+      msi = appliedMsiFees.get(income.id),
+      plan = cardInstallmentPlan(income.clip_financial_raw);
+    if (
+      !income.settled_at &&
+      income.fees_cents === null &&
+      base &&
+      !plan.needsReview &&
+      (!plan.msi || msi)
+    ) {
+      const tax = BigInt(base.tax_cents) + BigInt(msi?.tax_cents ?? 0);
+      income.fees_cents = (
+        BigInt(base.processing_cents) +
+        BigInt(msi?.financing_cents ?? 0) -
+        tax
+      ).toString();
+      income.fee_creditable_tax_cents = tax.toString();
+      income.fee_calculated = true;
+    }
+  }
   const profile =
     (await q.query("select fiscal_profile from settings")).rows[0]?.fiscal_profile ===
     "resico_pf_16";
@@ -187,10 +221,6 @@ export async function report(q: Query, from: string, to: string): Promise<Report
       BigInt(r.gross_cents) >= 0n &&
       (!r.settled_at || r.settlement_date >= to),
   );
-  if (pendingClip.length)
-    warnings.push(
-      `${pendingClip.length} transacciones de Clip pendientes de conciliar con sus comisiones y depósitos al cierre del periodo.`,
-    );
 
   if (pendingRecoveries)
     warnings.push(
@@ -407,9 +437,12 @@ export async function report(q: Query, from: string, to: string): Promise<Report
         );
   const financialWarnings: string[] = [];
   if (!opening?.opening_done) financialWarnings.push("Falta registrar los saldos de apertura.");
-  if (pendingClip.length)
+  const unappliedBase = pendingClip.filter(
+    (r) => BigInt(r.gross_cents) > 0n && !appliedFees.has(r.id),
+  );
+  if (unappliedBase.length)
     financialWarnings.push(
-      `${pendingClip.length} ${pendingClip.length === 1 ? "cobro con tarjeta pendiente" : "cobros con tarjeta pendientes"} de conciliar con el depósito y las comisiones de Clip.`,
+      `${unappliedBase.length} ${unappliedBase.length === 1 ? "cobro" : "cobros"} con tarjeta sin comisión calculada y aplicada. Revisa la tarifa configurada.`,
     );
   if (pendingRecoveries)
     financialWarnings.push("Hay pagos de compras o gastos cancelados pendientes de recuperar.");
@@ -436,6 +469,22 @@ export async function report(q: Query, from: string, to: string): Promise<Report
     if (missing.length)
       financialWarnings.push(
         `Falta configurar tarifa MSI para estos plazos: ${missing.join(", ")} meses. Revisa las reglas de comisión.`,
+      );
+    const pendingMsi = pendingClip.filter((r) => {
+      const plan = cardInstallmentPlan(r.clip_financial_raw);
+      return (
+        !appliedMsi.has(r.id) &&
+        plan.msi &&
+        termRules.some((t) => t.installments === plan.installments)
+      );
+    });
+    if (pendingMsi.length)
+      financialWarnings.push(
+        `${pendingMsi.length} cobros con tarifa MSI configurada pendiente de aplicar.`,
+      );
+    if (pendingClip.some((r) => cardInstallmentPlan(r.clip_financial_raw).needsReview))
+      financialWarnings.push(
+        "Hay cobros con plazo o financiamiento sin identificar. Revisa su tarifa.",
       );
   }
   if (overlapping)
@@ -484,7 +533,12 @@ export async function report(q: Query, from: string, to: string): Promise<Report
     gross: metric(gross, partial),
     fees: metric(
       fees,
-      partial ?? (feeVatPending ? "IVA de comisiones pendiente de comprobación." : undefined),
+      partial ??
+        (incomes.some((r) => r.fee_calculated)
+          ? "Incluye comisiones calculadas según tarifa; pueden diferir de los cargos reales. El IVA requiere comprobación."
+          : feeVatPending
+            ? "IVA de comisiones pendiente de comprobación."
+            : undefined),
     ),
     contribution: metric(contrib, partial),
     expenses: metric(

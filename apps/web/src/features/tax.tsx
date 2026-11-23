@@ -387,7 +387,16 @@ export function TaxPage({ from }: { from: string }) {
                   >
                 )[r.type],
             },
-            { key: "label", label: "Referencia / concepto" },
+            {
+              key: "label",
+              label: "Referencia / concepto",
+              render: (r) => (
+                <>
+                  {r.label}{" "}
+                  {r.fee_calculated && <Badge tone="neutral">Calculada según tarifa</Badge>}
+                </>
+              ),
+            },
             {
               key: "total_cents",
               label: "Total original",

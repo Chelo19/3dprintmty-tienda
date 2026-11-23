@@ -107,7 +107,8 @@ describe.sequential("Conciliación Clip al centavo", () => {
     const report = await request(app.getHttpServer())
       .get("/api/v1/report?from=2025-11-01&to=2025-12-01")
       .set("Authorization", "Bearer " + token);
-    expect(report.body.warnings.join(" ")).toMatch(/pendientes de conciliar/);
+    expect(report.body.warnings.join(" ")).not.toMatch(/pendientes de conciliar/);
+    expect(report.body.financial.warnings.join(" ")).toMatch(/sin comisión calculada/);
   });
   it("rechaza diferencias de un centavo y desgloses CSV inconsistentes sin inventar ajustes", async () => {
     expect(clipReportRows([csvRow({ "Paid Amount": "337.80" })]).errors).toHaveLength(1);

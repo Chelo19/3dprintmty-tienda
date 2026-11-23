@@ -38,7 +38,7 @@ export function Cash({ from, to }: { from: string; to: string }) {
       <div className="page-heading">
         <div>
           <div className="eyebrow">ENTRADAS Y SALIDAS REALES</div>
-          <h1>Efectivo y conciliación</h1>
+          <h1>Efectivo y cuentas</h1>
           <p>Cobrar, pagar y liquidar son movimientos distintos de reconocer ingresos y gastos.</p>
         </div>
         <div className="heading-actions">
@@ -67,7 +67,7 @@ export function Cash({ from, to }: { from: string; to: string }) {
             </strong>
             <small>
               {a.kind === "pending"
-                ? "Pendiente de depósito · no efectivo disponible"
+                ? "Saldo en Clip · comisiones calculadas según tarifa"
                 : "Saldo disponible actual"}
             </small>
           </article>
@@ -76,10 +76,10 @@ export function Cash({ from, to }: { from: string; to: string }) {
       <Notice>
         Las nuevas ventas importadas registran su cobro automáticamente: Efectivo en Efectivo,
         Tarjeta en Clip por liquidar, descontando por separado su comisión configurada con IVA, y
-        Transferencia en Banco. Las existentes se omiten al reimportar. Para liquidar tarjetas usa
-        Ingresos → abrir transacción → Conciliar depósito; se transfiere el neto a Banco y ajusta la
-        diferencia entre la comisión aplicada y los cargos reales. No registres otra vez esos cobros
-        ni sus comisiones. Las ventas históricas sin movimiento se revisan por separado.
+        Transferencia en Banco. Las existentes se omiten al reimportar. Cuando retires dinero de
+        Clip por SPEI, registra una Transferencia entre cuentas / SPEI con origen Clip y destino
+        Banco, por el importe y fecha reales. Puede incluir varias ventas y no genera un ingreso ni
+        otra comisión. No necesitas conciliar cada cobro; compara los saldos al cierre del mes.
       </Notice>
       <DataTable
         rows={(rows.data ?? []).filter((r) => r.date >= from && r.date < to)}
@@ -127,7 +127,7 @@ export function Cash({ from, to }: { from: string; to: string }) {
                   <option value="purchase">Pago a proveedor</option>
                   <option value="expense">Pago de gasto / activo</option>
                   <option value="collection">Cobro de ingreso</option>
-                  <option value="transfer">Transferencia / liquidación Clip</option>
+                  <option value="transfer">Transferencia entre cuentas / SPEI</option>
                   <option value="refund">Devolución de efectivo a cliente</option>
                   <option value="recovery">Recuperación de compra / gasto cancelado</option>
                   <option value="contribution">Aporte de capital</option>
@@ -327,7 +327,7 @@ export function Reports({ from, to }: { from: string; to: string }) {
 function FileLabel() {
   return <div className="eyebrow">REPORTE EXPORTABLE</div>;
 }
-const checks = [
+const legacyChecks = [
   "Ventas registradas o importadas",
   "Devoluciones y cancelaciones revisadas",
   "Comisiones verificadas",
@@ -342,6 +342,15 @@ const checks = [
 export function Closes() {
   const [month, setMonth] = useState(today().slice(0, 7)),
     [selected, setSelected] = useState<any>(null);
+  const settings = useQuery({ queryKey: ["settings"], queryFn: () => api("/settings") });
+  const financial = settings.data?.inventory_mode === "external";
+  const checks = financial
+    ? [
+        "Ingresos, compras, gastos y SPEI del mes registrados",
+        "Saldos de Efectivo, Clip y Banco comparados con los saldos reales",
+        "Diferencias revisadas y pendientes fiscales identificados",
+      ]
+    : legacyChecks;
   const rows = useRows("closes");
   const audit = useRows("audit");
   return (
@@ -386,8 +395,10 @@ export function Closes() {
             ))}
           </div>
           <Notice>
-            El cierre se bloquea si los cálculos tienen datos financieros faltantes. Una vez
-            cerrado, se debe reabrir el mes para modificarlo.
+            {financial
+              ? "El cierre revisa movimientos y saldos. No exige costo vendido ni conciliar cada venta. Los impuestos conservan sus pendientes de comprobación."
+              : "El cierre se bloquea si los cálculos tienen datos financieros faltantes."}{" "}
+            Una vez cerrado, se debe reabrir el mes para modificarlo.
           </Notice>
         </Capture>
         {selected?.done && <Notice tone="success">Cierre mensual guardado.</Notice>}
@@ -439,24 +450,38 @@ export function Closes() {
               <Badge>{selected.month}</Badge>
             </div>
             <div className="statement">
-              {[
-                ["Ventas netas", selected.snapshot.sales],
-                ["Costo vendido", selected.snapshot.cogs],
-                ["Utilidad bruta", selected.snapshot.gross],
-                ["Comisiones", selected.snapshot.fees],
-                ["Gastos operativos", selected.snapshot.expenses],
-                ["Resultado operativo", selected.snapshot.operating],
-                ["Flujo disponible", selected.snapshot.cash],
-              ].map(([label, m]: any) => (
+              {(selected.snapshot.inventoryMode === "external"
+                ? [
+                    ["Cobros registrados", selected.snapshot.collected],
+                    ["Compras pagadas", selected.snapshot.sourceSummary?.purchases_paid],
+                    ["Gastos y activos pagados", selected.snapshot.sourceSummary?.expenses_paid],
+                    ["Flujo disponible", selected.snapshot.cash],
+                  ]
+                : [
+                    ["Ventas netas", selected.snapshot.sales],
+                    ["Costo vendido", selected.snapshot.cogs],
+                    ["Utilidad bruta", selected.snapshot.gross],
+                    ["Comisiones", selected.snapshot.fees],
+                    ["Gastos operativos", selected.snapshot.expenses],
+                    ["Resultado operativo", selected.snapshot.operating],
+                    ["Flujo disponible", selected.snapshot.cash],
+                  ]
+              ).map(([label, m]: any) => (
                 <div key={label}>
                   <span>{label}</span>
                   <strong>
                     <Amount
                       value={m?.value}
                       effect={
-                        ["Costo vendido", "Comisiones", "Gastos operativos"].includes(label)
+                        [
+                          "Costo vendido",
+                          "Comisiones",
+                          "Gastos operativos",
+                          "Compras pagadas",
+                          "Gastos y activos pagados",
+                        ].includes(label)
                           ? "expense"
-                          : label === "Ventas netas"
+                          : label === "Ventas netas" || label === "Cobros registrados"
                             ? "income"
                             : "signed"
                       }
@@ -622,11 +647,11 @@ export function Settings() {
       />
       <Notice>
         La tarifa Tarjeta se aplica por defecto a débito y crédito. Si solo hay una tarifa de Débito
-        o Crédito, se usa para ambas. Se muestran la comisión y su IVA estimados y se precargan al
-        conciliar; los cargos reales de Clip tienen prioridad. Al importar se descuenta la comisión
-        con IVA de Clip, conservando el cobro bruto. En MSI se agrega el recargo del plazo exacto
-        indicado en el CSV. Si no está configurado, queda pendiente para revisión. El depósito a
-        Banco se confirma por separado.
+        o Crédito, se usa para ambas. Se calculan la comisión y su IVA según la tarifa configurada,
+        sin conciliación por venta. Al importar se descuenta la comisión con IVA de Clip,
+        conservando el cobro bruto. En MSI se agrega el recargo del plazo exacto indicado en el CSV.
+        Si no está configurado, queda pendiente para revisión. El depósito a Banco se confirma por
+        separado.
       </Notice>
       <div className="section-top">
         <h2>Gastos recurrentes</h2>

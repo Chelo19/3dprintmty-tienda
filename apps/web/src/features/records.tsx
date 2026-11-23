@@ -375,9 +375,24 @@ export function Records({ resource, from, to }: { resource: string; from: string
         },
         {
           key: "deposited_cents",
-          label: "Depósito real",
+          label: "Neto en cuenta",
           align: "right",
-          render: (r) => <Amount value={r.deposited_cents} cents effect="income" />,
+          render: (r) => (
+            <Amount
+              value={
+                r.settled_at
+                  ? r.deposited_cents
+                  : r.source === "manual_summary"
+                    ? null
+                    : r.channel === "clip"
+                      ? r.fee_applied && !r.fee_missing_rule && !r.fee_needs_apply
+                        ? r.fee_net_applied_cents
+                        : null
+                      : r.gross_cents
+              }
+              cents
+            />
+          ),
         },
         {
           key: "card_plan",
@@ -391,13 +406,19 @@ export function Records({ resource, from, to }: { resource: string; from: string
         },
         {
           key: "settled_at",
-          label: "Conciliación",
+          label: "Comisión / registro",
           render: (r) =>
-            r.channel === "cash" || r.source === "manual_summary"
+            r.channel !== "clip" || r.source === "manual_summary"
               ? "No aplica"
               : r.settled_at
-                ? "Conciliado"
-                : "Pendiente",
+                ? "Histórico conciliado"
+                : r.fee_missing_rule
+                  ? "Revisar tarifa"
+                  : r.fee_needs_apply
+                    ? "Tarifa por aplicar"
+                    : r.fee_applied
+                      ? "Calculada según tarifa"
+                      : "Sin tarifa aplicada",
         },
         {
           key: "net_cents",

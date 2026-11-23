@@ -62,7 +62,7 @@ export async function applyCardFees(q: Query, incomeIds: string[], required = fa
     )
       throw new AppError(
         "cash_conflict",
-        "La venta tiene movimientos adicionales o un cobro distinto. Revisa la conciliación antes de descontar la comisión.",
+        "La venta tiene movimientos adicionales o un cobro distinto. Revisa los movimientos antes de descontar la comisión.",
         409,
       );
     if (!checkedDates.has(entry.date)) {
@@ -114,7 +114,7 @@ export async function applyCardFees(q: Query, incomeIds: string[], required = fa
         row.income_id,
         "apply_card_fee",
         row,
-        "Tarifa predeterminada de tarjeta descontada de Clip; pendiente de conciliación real.",
+        "Comisión calculada según tarifa y descontada de Clip.",
       );
   }
   const msi = await applyMsiFees(q, items, rules);
@@ -225,7 +225,7 @@ async function applyMsiFees(q: Query, items: Row[], rules: CardFeeRule[]) {
       item.id,
       "apply_msi_fee",
       snapshot,
-      "Cargo MSI por plazo descontado de Clip; conciliación real pendiente.",
+      "Cargo MSI calculado por plazo y descontado de Clip.",
     );
     count++;
   }

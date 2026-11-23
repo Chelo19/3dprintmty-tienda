@@ -1,9 +1,7 @@
 import { Amount } from "../components/Amount";
-import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Decimal } from "@tienda/domain";
-import { Badge, Capture, Field, MoneyInput, Notice } from "../components/ui";
-import { amount, shortDate, today, mxn } from "../lib/format";
+import { Badge, Capture, Notice } from "../components/ui";
+import { shortDate } from "../lib/format";
 
 function CommissionBreakdown({ income, quote }: { income: any; quote: any }) {
   const subtract = (a: any, b: any) =>
@@ -52,7 +50,7 @@ function CommissionBreakdown({ income, quote }: { income: any; quote: any }) {
           ? "Tarifa aplicada originalmente"
           : income.fee_needs_apply || !income.fee_applied
             ? "Estimación pendiente de aplicar"
-            : "Tarifa aplicada · conciliación pendiente"}
+            : "Calculada según tarifa · aplicada en Clip"}
       </Badge>
       <p>
         Tarifa{" "}
@@ -82,7 +80,7 @@ function CommissionBreakdown({ income, quote }: { income: any; quote: any }) {
       <p className="tiny muted">
         {income.settled_at
           ? "Este desglose conserva la tarifa usada al registrar el cobro. Los importes reales conciliados aparecen abajo."
-          : "El cálculo se precarga al conciliar y puede ajustarse con los importes reales de Clip."}{" "}
+          : "Comisión calculada según la tarifa configurada. No requiere conciliación por venta; revisa los saldos al cierre del mes."}{" "}
         El IVA requiere comprobación fiscal para acreditarse.
       </p>
     </section>
@@ -91,19 +89,11 @@ function CommissionBreakdown({ income, quote }: { income: any; quote: any }) {
 
 export function ClipSettlement({ income, onSuccess }: { income: any; onSuccess: () => void }) {
   const estimate = income.fee_estimate;
-  const financingUnknown =
-    !!income.fee_missing_rule ||
-    !!income.card_plan?.needsReview ||
-    (!estimate?.msi_priced &&
-      (BigInt(income.clip_financing_cents ?? 0) > 0n ||
-        Number(income.clip_financial_raw?.Installment ?? 1) > 1));
   const totalFee = estimate?.total_cents ?? estimate?.processing_cents;
-  const [show, setShow] = useState(false),
-    [difference, setDifference] = useState<string | null>(null);
   if (income.source === "manual_summary") return null;
   return (
     <section className="panel">
-      <h3>Desglose y conciliación de Clip</h3>
+      <h3>Cobro y comisiones de Clip</h3>
       <dl className="detail-list">
         {[
           ["Importe base del reporte (no es venta sin IVA)", income.clip_base_cents],
@@ -150,9 +140,9 @@ export function ClipSettlement({ income, onSuccess }: { income: any; onSuccess: 
             .
           </strong>{" "}
           Neto registrado de este cobro en Clip:{" "}
-          <Amount value={income.fee_net_applied_cents ?? estimate.deposited_cents} cents />. Al
-          conciliar solo se ajustará la diferencia con los cargos reales, sin descontar dos veces la
-          comisión.
+          <Amount value={income.fee_net_applied_cents ?? estimate.deposited_cents} cents />. Las
+          comisiones están calculadas según tarifa y pueden diferir de los cargos reales. No
+          registres estas comisiones de nuevo como gasto.
         </Notice>
       )}
       {estimate &&
@@ -232,110 +222,12 @@ export function ClipSettlement({ income, onSuccess }: { income: any; onSuccess: 
           </Notice>
         </>
       ) : (
-        <>
-          <Notice>
-            Comisión y depósito pendientes de verificar. El cargo por diferimiento del CSV no
-            demuestra lo retenido por Clip. Usa el estado de cuenta para completar los cargos
-            reales. No registres de nuevo estas comisiones como gasto.
-          </Notice>
-          {income.status === "active" && (
-            <button
-              type="button"
-              className="button"
-              onClick={() => {
-                setDifference(
-                  estimate?.deposited_cents != null && !financingUnknown ? "0.00" : null,
-                );
-                setShow(!show);
-              }}
-            >
-              {show ? "Ocultar conciliación" : "Conciliar depósito"}
-            </button>
-          )}
-          {show && (
-            <div
-              onInput={(e) => {
-                const form = e.currentTarget.querySelector("form");
-                if (!form) return;
-                const v = Object.fromEntries(new FormData(form));
-                const keys = ["processing_fee", "financing_withheld", "deposited"];
-                if (keys.some((k) => !/^\d+(\.\d{1,2})?$/.test(String(v[k] ?? "")))) {
-                  setDifference(null);
-                  return;
-                }
-                setDifference(
-                  new Decimal(amount(income.gross_cents))
-                    .minus(String(v.processing_fee))
-                    .minus(String(v.financing_withheld))
-                    .minus(String(v.deposited))
-                    .toFixed(2),
-                );
-              }}
-            >
-              <Capture
-                name="settle-clip"
-                submit="Confirmar conciliación y registrar depósito"
-                onSuccess={onSuccess}
-                transform={(v) => ({ ...v, id: income.id })}
-              >
-                <Notice>
-                  Debe cuadrar al centavo: total cobrado = depósito + procesamiento retenido +
-                  financiamiento retenido. Los importes deben corresponder a esta transacción; si el
-                  banco agrupa varias, usa el detalle de liquidación para asignarlos.
-                </Notice>
-                <div className="form-grid">
-                  <Field label="Comisión de procesamiento retenida, IVA incluido">
-                    <MoneyInput
-                      name="processing_fee"
-                      defaultValue={amount(estimate?.processing_cents)}
-                      required
-                    />
-                  </Field>
-                  <Field
-                    label="Financiamiento retenido, IVA incluido"
-                    hint="Escribe 0 si el estado de cuenta confirma que no se retuvo este cargo."
-                  >
-                    <MoneyInput
-                      name="financing_withheld"
-                      defaultValue={
-                        estimate && !financingUnknown ? amount(estimate.financing_cents ?? "0") : ""
-                      }
-                      required
-                    />
-                  </Field>
-                  <Field
-                    label="IVA de los cargos"
-                    hint="Se propone el IVA calculado del procesamiento. Verifica el importe real, incluido financiamiento si aplica. Para acreditarlo se requiere comprobarlo en Impuestos y costos."
-                  >
-                    <MoneyInput
-                      name="creditable_tax"
-                      defaultValue={amount(estimate?.tax_cents)}
-                      required
-                    />
-                  </Field>
-                  <Field label="Depósito neto de esta transacción">
-                    <MoneyInput
-                      name="deposited"
-                      defaultValue={!financingUnknown ? amount(estimate?.deposited_cents) : ""}
-                      required
-                    />
-                  </Field>
-                  <Field label="Fecha real del depósito">
-                    <input type="date" name="date" defaultValue={today()} required />
-                  </Field>
-                  <Field label="Referencia del estado de cuenta o liquidación">
-                    <input name="reference" minLength={5} maxLength={1000} required />
-                  </Field>
-                </div>
-                <Notice tone={difference !== null && difference !== "0.00" ? "error" : "info"}>
-                  Diferencia: {difference === null ? "completa los importes" : mxn(difference)}.
-                  Solo se guarda cuando es $0.00. Se registrará el depósito en Banco una sola vez y
-                  se liberará el saldo correspondiente de Clip.
-                </Notice>
-              </Capture>
-            </div>
-          )}
-        </>
+        <Notice>
+          El dinero de la venta se registra en Clip con la comisión calculada según tarifa. No
+          necesitas conciliar cada cobro. Cuando hagas un SPEI a Banco, registra una sola
+          transferencia por el importe real desde <Link to="/app/efectivo">Efectivo</Link>, aunque
+          incluya varias ventas. Al cierre del mes compara los saldos y revisa solo las diferencias.
+        </Notice>
       )}
     </section>
   );

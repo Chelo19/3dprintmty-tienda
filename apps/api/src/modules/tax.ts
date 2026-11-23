@@ -82,10 +82,14 @@ export async function taxSources(q: Query): Promise<Row[]> {
     await q.query(`select p.id,'purchase' as type,p.date,
     coalesce(s.name,'Proveedor sin asignar') || ' · ' || coalesce(nullif(p.reference,''),'Sin referencia') as label,
     p.total_cents,p.tax_cents as vat_cents,p.status,coalesce(p.summary_cost_cents,p.total_cents-p.tax_cents) as cost_cents,
-    'merchandise' as kind,null::text as tax_mode,p.reference
+    'merchandise' as kind,null::text as tax_mode,p.reference,false as fee_calculated
     from purchases p left join suppliers s on s.id=p.supplier_id
-    union all select e.id,'expense',e.date,e.concept,(e.amount_cents+e.tax_cents),e.tax_cents,e.status,e.amount_cents,e.kind,e.tax_mode,'' from expenses e
-    union all select i.id,'fee',i.settlement_date,i.description,(i.processing_fee_cents+i.financing_withheld_cents),i.fee_creditable_tax_cents,i.status,i.fees_cents,'operating',null::text,i.settlement_reference from incomes i where i.settled_at is not null
+    union all select e.id,'expense',e.date,e.concept,(e.amount_cents+e.tax_cents),e.tax_cents,e.status,e.amount_cents,e.kind,e.tax_mode,'',false from expenses e
+    union all select i.id,'fee',i.settlement_date,i.description,(i.processing_fee_cents+i.financing_withheld_cents),i.fee_creditable_tax_cents,i.status,i.fees_cents,'operating',null::text,i.settlement_reference,false from incomes i where i.settled_at is not null
+    union all select i.id,'fee',greatest(b.date,coalesce(m.date,b.date)),i.description,
+      b.processing_cents+coalesce(m.financing_cents,0),b.tax_cents+coalesce(m.tax_cents,0),i.status,
+      b.processing_cents+coalesce(m.financing_cents,0)-b.tax_cents-coalesce(m.tax_cents,0),'operating',null::text,'Comisión calculada según tarifa',true
+      from incomes i join income_card_fee_estimates b on b.income_id=i.id left join income_msi_fee_estimates m on m.income_id=i.id where i.settled_at is null
     order by date desc`)
   ).rows;
 }
@@ -211,7 +215,8 @@ export async function saveTaxDocument(q: Query, raw: unknown) {
       notes: reference,
     })
     .parse(raw);
-  const source = (await taxSources(q)).find((s) => s.id === b.id && s.type === b.type);
+  const sources = await taxSources(q);
+  const source = sources.find((s) => s.id === b.id && s.type === b.type);
   if (!source) throw new AppError("not_found", "Documento fiscal no disponible.", 404);
   await unlocked(q, source.date);
   const key =
@@ -238,14 +243,22 @@ export async function saveTaxDocument(q: Query, raw: unknown) {
     await unlocked(q, b.eligible_on);
     const same = (
       await q.query(
-        `select d.*,coalesce(p.tax_cents,e.tax_cents,i.fee_creditable_tax_cents) as allocated_vat from tax_documents d left join purchases p on p.id=d.purchase_id left join expenses e on e.id=d.expense_id left join incomes i on i.id=d.income_id where d.status='creditable' and d.invoice_uuid=$1 and d.id<>$2`,
+        `select * from tax_documents where status='creditable' and invoice_uuid=$1 and id<>$2`,
         [b.invoice_uuid, before?.id ?? id()],
       )
     ).rows;
     const limit = cents(b.invoice_vat);
     if (
       same.some((s) => BigInt(s.invoice_vat_cents) !== limit) ||
-      same.reduce((v, s) => v + BigInt(s.allocated_vat), BigInt(source.vat_cents)) > limit
+      same.reduce(
+        (v, s) =>
+          v +
+          BigInt(
+            sources.find((source) => source.id === (s.purchase_id ?? s.expense_id ?? s.income_id))
+              ?.vat_cents ?? 0,
+          ),
+        BigInt(source.vat_cents),
+      ) > limit
     )
       throw new AppError(
         "invoice_overallocated",

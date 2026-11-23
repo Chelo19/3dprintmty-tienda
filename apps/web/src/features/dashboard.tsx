@@ -120,7 +120,7 @@ export function Dashboard({ from, to }: { from: string; to: string }) {
         <h2>Cobros y pagos del periodo</h2>
         <Badge tone={warnings.length ? "warning" : "success"}>
           {warnings.length ? <AlertCircle size={12} /> : <CheckCircle2 size={12} />}{" "}
-          {warnings.length ? "Conciliación por revisar" : "Sin alertas de conciliación"}
+          {warnings.length ? "Movimientos por revisar" : "Sin alertas de movimientos"}
         </Badge>
       </div>
       <div className="kpi-grid">
@@ -271,7 +271,7 @@ export function Dashboard({ from, to }: { from: string; to: string }) {
         <section className="panel">
           <div className="panel-heading">
             <div>
-              <h2>Conciliación del dinero</h2>
+              <h2>Revisión de saldos y movimientos</h2>
               <p>Depósitos, devoluciones y recuperaciones por revisar</p>
             </div>
           </div>
@@ -287,7 +287,7 @@ export function Dashboard({ from, to }: { from: string; to: string }) {
           ) : (
             <div className="quality-ok">
               <CheckCircle2 size={24} />
-              <strong>Sin pendientes de conciliación</strong>
+              <strong>Sin pendientes de revisión</strong>
               <p>
                 No se detectaron alertas en los movimientos del periodo. La comprobación fiscal se
                 revisa por separado.

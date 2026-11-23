@@ -499,16 +499,23 @@ export class ApiController {
           }
           case "close": {
             const b = z
-              .object({ month: z.string(), checklist: z.array(z.boolean()).length(10) })
+              .object({ month: z.string(), checklist: z.array(z.boolean()).min(3).max(10) })
               .parse(raw);
             const bounds = monthBounds(b.month);
-            if (!b.checklist.every(Boolean))
-              throw new AppError("checklist_required", "Completa las diez revisiones del cierre.");
+            const external =
+              (await q.query("select inventory_mode from settings")).rows[0]?.inventory_mode ===
+              "external";
+            if (
+              !b.checklist.every(Boolean) ||
+              (external ? ![3, 10].includes(b.checklist.length) : b.checklist.length !== 10)
+            )
+              throw new AppError("checklist_required", "Completa las revisiones del cierre.");
             const snapshot = await report(q, bounds.from, bounds.to);
-            if (snapshot.warnings.length)
+            const blockers = external ? (snapshot.financial?.warnings ?? []) : snapshot.warnings;
+            if (blockers.length)
               throw new AppError(
                 "incomplete_close",
-                "El cierre tiene datos incompletos: " + snapshot.warnings.join(" "),
+                "El cierre tiene datos incompletos: " + blockers.join(" "),
               );
             const existing = (
               await q.query("select * from monthly_closes where month=$1", [b.month])

@@ -112,6 +112,12 @@ El propietario reitera que esta herramienta es financiera: el detalle por produc
 
 **Convención visual de importes:** verde para entradas y valores a favor; rojo para salidas, cargos y valores negativos; negro para totales, referencias y saldos positivos; gris para cero o pendiente. Mostrar signos en movimientos y en indicadores de flujo para no depender solo del color. Una compra registrada sin pago conserva un total de referencia; no inventar una salida por colorearla. Los formatos y colores son de presentación y no cambian importes, movimientos ni exportaciones.
 
+## Decisión vigente: operación sin conciliación por venta
+
+Registrar ventas y comisiones configuradas automáticamente al importar. Las comisiones se identifican como calculadas según tarifa; no exigir comprobarlas individualmente ni mover dinero a Banco al revisar una venta. Registrar cada SPEI de Clip a Banco como una transferencia independiente por importe y fecha reales, agrupando ventas o transfiriendo parcialmente el saldo según corresponda. No duplicar ventas ni comisiones. Las diferencias se revisan al comparar los saldos reales de las tres cuentas al cierre del mes.
+
+El cierre financiero usa tres revisiones y no exige costo vendido ni conciliación de cobros individuales. Las tarifas faltantes y excepciones financieras reales se mantienen como avisos. Las comisiones calculadas y su IVA se reutilizan en reportes e Impuestos y costos sin recaptura; el IVA sigue pendiente de comprobación hasta registrar respaldo fiscal válido. Las liquidaciones históricas no se alteran. Esta decisión sustituye el flujo anterior que combinaba conciliación de cada venta y depósito a Banco.
+
 ## 5. Integración con Clip
 
 La prioridad es evitar duplicar manualmente la captura de ventas.

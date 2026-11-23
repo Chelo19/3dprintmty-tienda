@@ -86,7 +86,7 @@ it("presenta flujo, pagos e impuestos sin exigir costos vendidos ni mostrar rent
     ),
   ).toBeNull();
   expect(screen.queryByText(/Hay ingresos sin costo vendido/)).toBeNull();
-  expect(screen.getByText("Sin alertas de conciliación")).toBeTruthy();
+  expect(screen.getByText("Sin alertas de movimientos")).toBeTruthy();
   expect(screen.getByText("IVA estimado por pagar · tienda")).toBeTruthy();
   const expense = screen.getByText("Servicio").closest(".recent-row")!;
   expect(within(expense as HTMLElement).getByText("$58.00")).toBeTruthy();
@@ -99,10 +99,10 @@ it("presenta flujo, pagos e impuestos sin exigir costos vendidos ni mostrar rent
 });
 it("mantiene visibles las alertas financieras que sí necesitan conciliación", async () => {
   const client = await show(["Hay pagos de compras o gastos cancelados pendientes de recuperar."]);
-  expect(screen.getByText("Conciliación por revisar")).toBeTruthy();
+  expect(screen.getByText("Movimientos por revisar")).toBeTruthy();
   expect(
     screen.getByText("Hay pagos de compras o gastos cancelados pendientes de recuperar."),
   ).toBeTruthy();
-  expect(screen.queryByText("Sin pendientes de conciliación")).toBeNull();
+  expect(screen.queryByText("Sin pendientes de revisión")).toBeNull();
   client.clear();
 });
