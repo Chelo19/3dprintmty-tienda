@@ -1,4 +1,5 @@
 import Decimal from "decimal.js";
+export { warrantyExpiry, warrantyDetails } from "./warranty";
 Decimal.set({ precision: 40, rounding: Decimal.ROUND_HALF_UP });
 export { Decimal };
 export interface CardFeeRule {

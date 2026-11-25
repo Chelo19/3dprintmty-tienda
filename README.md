@@ -129,6 +129,16 @@ Las comisiones calculadas aparecen en reportes y en Impuestos y costos con su IV
 
 El importador conserva `Base Amount`, `Tip Amount`, `Deferral Comission`, `Net Amount` y los datos de financiamiento con su significado original. `Net Amount` no se toma como depósito confirmado ni venta sin IVA. Las inconsistencias y devoluciones siguen sujetas a revisión.
 
+### Registro de números de serie
+
+En **Operación → Números de serie** puedes registrar primero una impresora con equipo, serie única, fecha de llegada a tienda y vigencia de garantía en meses (1 a 120). Después asigna el cliente y su **fecha de venta**. La **fecha de facturación al cliente** es independiente y puede quedar pendiente: si se va a facturar, la garantía comienza desde esa factura, no desde la llegada ni desde la venta. La lista muestra las tres fechas por separado. Al registrar la facturación puedes capturar el **folio de factura** (opcional, hasta 120 caracteres); también puedes corregirlo en Ver / editar y buscarlo en la lista.
+
+Puedes marcar **No se va a facturar** al registrar, editar o asignar una impresora. En ese caso la garantía comienza en la **fecha de venta**, la factura queda sin fecha y la lista la distingue de una facturación pendiente. La columna Facturación permite filtrar ambos casos, y el vencimiento indica si se calculó desde venta o factura. Una fecha de factura existente debe quitarse explícitamente antes de cambiar la opción; los cambios quedan auditados. Los registros anteriores mantienen por defecto la opción de facturar.
+
+Para una impresora vendida con facturación pendiente, usa **Registrar factura** para guardar únicamente su fecha, sin recapturar cliente o venta. El vencimiento se calcula desde la facturación por meses calendario, ajustando al último día válido del mes, y la cobertura incluye el día mostrado. Los estados filtrables incluyen sin asignar, pendiente de facturar, por iniciar, vigente, por vencer (30 días), vencida y vigencia por definir.
+
+Los registros anteriores conservan sus datos y la antigua fecha de asignación se mantiene como fecha de venta; no se inventa una factura ni una duración desconocida. Usa **Ver / editar** para completar o corregir datos; los cambios, asignaciones y fechas de factura quedan auditados. Una serie es única ignorando mayúsculas y espacios exteriores. El módulo muestra todo el historial, independiente del periodo financiero, sin generar dinero ni existencias. El acceso es privado del propietario.
+
 ### Tipos de pago e inmutabilidad de importaciones
 
 El tipo de pago de cada venta nueva se elige en la vista previa y se guarda al confirmar. Los métodos desconocidos exigen selección explícita. Las canceladas y las ventas de importe cero no crean dinero. La creación de ventas y cobros es atómica, y las confirmaciones simultáneas de archivos solapados conservan una sola venta y un solo cobro por identificador. Las transacciones existentes se reconocen por ID de transacción, pago o folio; se omiten aun si el nuevo CSV cambia fecha, importe, método o estado. El tipo elegido en la primera importación prevalece. Los complementos documentados y las devoluciones siguen teniendo sus flujos explícitos y auditados.

@@ -1,4 +1,5 @@
 import { TaxPage } from "./features/tax";
+import { SerialRecords } from "./features/serial-records";
 import { useEffect, useState, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink, Routes, Route, Navigate, useLocation, Link } from "react-router-dom";
@@ -17,6 +18,9 @@ import {
   X,
   ChevronDown,
   ShieldCheck,
+  ScanBarcode,
+  WifiOff,
+  RefreshCw,
   LoaderCircle,
 } from "lucide-react";
 import { monthBounds } from "@tienda/domain";
@@ -43,6 +47,7 @@ const groups = [
       ["compras", "Compras", ShoppingCart],
       ["gastos", "Gastos", ReceiptText],
       ["proveedores", "Proveedores", Truck],
+      ["numeros-de-serie", "Números de serie", ScanBarcode],
       ["efectivo", "Efectivo", Wallet],
     ],
   },
@@ -61,7 +66,8 @@ function CloudIcon(props: any) {
 export function App() {
   const [ready, setReady] = useState(false),
     [authenticated, setAuthenticated] = useState(!!token),
-    [authError, setAuthError] = useState("");
+    [authError, setAuthError] = useState(""),
+    [retryingConfig, setRetryingConfig] = useState(false);
   const config = useQuery({
     queryKey: authConfigKey,
     queryFn: ({ signal }) => api("/auth/config", { signal }),
@@ -96,13 +102,54 @@ export function App() {
     window.addEventListener("tienda-auth", update);
     return () => window.removeEventListener("tienda-auth", update);
   }, [client]);
-  if (config.error)
+  if (config.error || retryingConfig)
     return (
-      <main className="login">
-        <Notice tone="error">
-          No se pudo conectar con la API. Verifica que esté iniciada.{" "}
-          <button onClick={() => void config.refetch()}>Reintentar</button>
-        </Notice>
+      <main className="connection-error-page">
+        <section
+          className="connection-error-card"
+          role="alert"
+          aria-labelledby="connection-error-title"
+          aria-busy={config.isFetching || retryingConfig}
+        >
+          <div className="eyebrow">3dprintmty · TIENDA</div>
+          <div className="connection-error-icon">
+            <WifiOff size={30} aria-hidden="true" />
+          </div>
+          <h1 id="connection-error-title">No pudimos cargar la tienda</h1>
+          <p>
+            {navigator.onLine === false
+              ? "Parece que tu equipo está sin conexión. Revisa tu conexión a internet y vuelve a intentarlo."
+              : "No fue posible obtener una respuesta válida del servidor. Puede ser una interrupción temporal o un problema de conexión."}
+          </p>
+          <button
+            className="button primary"
+            disabled={config.isFetching || retryingConfig}
+            onClick={() => {
+              setRetryingConfig(true);
+              void config.refetch().finally(() => setRetryingConfig(false));
+            }}
+          >
+            {config.isFetching || retryingConfig ? (
+              <LoaderCircle size={17} className="spin" aria-hidden="true" />
+            ) : (
+              <RefreshCw size={17} aria-hidden="true" />
+            )}
+            {config.isFetching || retryingConfig ? "Conectando…" : "Reintentar conexión"}
+          </button>
+          {import.meta.env.DEV && (
+            <div className="connection-error-help">
+              <strong>Si estás trabajando en tu equipo</strong>
+              <p>
+                Verifica que la terminal donde ejecutaste <code>npm run dev</code> siga abierta y no
+                muestre errores al iniciar el servidor.
+              </p>
+            </div>
+          )}
+          <details className="connection-error-details">
+            <summary>Ver detalle del error</summary>
+            <pre>{config.error?.message ?? "Intentando volver a conectar…"}</pre>
+          </details>
+        </section>
       </main>
     );
   if (authError) return <Notice tone="error">{authError}</Notice>;
@@ -318,12 +365,14 @@ function Shell({ onLogout }: { onLogout: () => Promise<void> }) {
             <strong>
               {location.pathname === "/app"
                 ? "Resumen financiero"
-                : location.pathname.split("/").at(-1)?.replaceAll("-", " ")}
+                : location.pathname === "/app/numeros-de-serie"
+                  ? "Números de serie"
+                  : location.pathname.split("/").at(-1)?.replaceAll("-", " ")}
             </strong>
           </div>
           <div className="topbar-right">
             <BadgeLocal local={settings.data?.local} />
-            <span className="currency">MXN</span>
+            {location.pathname !== "/app/numeros-de-serie" && <span className="currency">MXN</span>}
             <span className="avatar small">MD</span>
           </div>
         </header>
@@ -334,51 +383,53 @@ function Shell({ onLogout }: { onLogout: () => Promise<void> }) {
               <span className="period-dot" /> Información de tu tienda{" "}
               <span className="muted period-zone">· America/Monterrey</span>
             </div>
-            <div className="period-controls">
-              <select
-                aria-label="Tipo de periodo"
-                value={custom ? "custom" : "month"}
-                onChange={(e) => {
-                  setCustom(e.target.value === "custom");
-                  setRange(monthBounds(month));
-                }}
-              >
-                <option value="month">Mes</option>
-                <option value="custom">Rango personalizado</option>
-              </select>
-              {custom ? (
-                <>
+            {location.pathname !== "/app/numeros-de-serie" && (
+              <div className="period-controls">
+                <select
+                  aria-label="Tipo de periodo"
+                  value={custom ? "custom" : "month"}
+                  onChange={(e) => {
+                    setCustom(e.target.value === "custom");
+                    setRange(monthBounds(month));
+                  }}
+                >
+                  <option value="month">Mes</option>
+                  <option value="custom">Rango personalizado</option>
+                </select>
+                {custom ? (
+                  <>
+                    <input
+                      aria-label="Fecha inicial"
+                      type="date"
+                      value={range.from}
+                      onChange={(e) =>
+                        e.target.value &&
+                        e.target.value < range.to &&
+                        setRange({ ...range, from: e.target.value })
+                      }
+                    />
+                    <input
+                      aria-label="Fecha final exclusiva"
+                      title="Fecha final exclusiva"
+                      type="date"
+                      value={range.to}
+                      onChange={(e) =>
+                        e.target.value &&
+                        e.target.value > range.from &&
+                        setRange({ ...range, to: e.target.value })
+                      }
+                    />
+                  </>
+                ) : (
                   <input
-                    aria-label="Fecha inicial"
-                    type="date"
-                    value={range.from}
-                    onChange={(e) =>
-                      e.target.value &&
-                      e.target.value < range.to &&
-                      setRange({ ...range, from: e.target.value })
-                    }
+                    aria-label="Mes de consulta"
+                    type="month"
+                    value={month}
+                    onChange={(e) => e.target.value && setMonth(e.target.value)}
                   />
-                  <input
-                    aria-label="Fecha final exclusiva"
-                    title="Fecha final exclusiva"
-                    type="date"
-                    value={range.to}
-                    onChange={(e) =>
-                      e.target.value &&
-                      e.target.value > range.from &&
-                      setRange({ ...range, to: e.target.value })
-                    }
-                  />
-                </>
-              ) : (
-                <input
-                  aria-label="Mes de consulta"
-                  type="month"
-                  value={month}
-                  onChange={(e) => e.target.value && setMonth(e.target.value)}
-                />
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
           <Routes>
             <Route path="/app" element={<Dashboard from={from} to={to} />} />
@@ -397,6 +448,7 @@ function Shell({ onLogout }: { onLogout: () => Promise<void> }) {
               />
             ))}
             <Route path="/app/importaciones" element={<Imports />} />
+            <Route path="/app/numeros-de-serie" element={<SerialRecords />} />
             <Route path="/app/efectivo" element={<Cash from={from} to={to} />} />
             <Route path="/app/impuestos" element={<TaxPage from={from} />} />
             <Route path="/app/reportes" element={<Reports from={from} to={to} />} />

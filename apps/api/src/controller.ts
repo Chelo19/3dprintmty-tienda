@@ -34,6 +34,12 @@ import { env } from "./env";
 import { localMode, localToken } from "./http/auth";
 import { date, money, uuid, productInput, supplierInput } from "./modules/validation";
 import * as store from "./modules/store";
+import {
+  createSerialRecord,
+  updateSerialRecord,
+  assignSerialRecord,
+  invoiceSerialRecord,
+} from "./modules/serial-records";
 import { report, reportRows, csv } from "./modules/reports";
 import { fileRows, mapRows, stage, preview, confirm, reject, hash } from "./modules/imports";
 import ExcelJS from "exceljs";
@@ -283,6 +289,14 @@ export class ApiController {
             await audit(q, "supplier", sid, "create", b);
             return { id: sid };
           }
+          case "serial-record":
+            return createSerialRecord(q, raw);
+          case "serial-record-update":
+            return updateSerialRecord(q, raw);
+          case "serial-record-assign":
+            return assignSerialRecord(q, raw);
+          case "serial-record-invoice":
+            return invoiceSerialRecord(q, raw);
           case "supplier-update": {
             const b = supplierInput.extend({ id: uuid }).parse(raw);
             const before = (await q.query("select * from suppliers where id=$1 for update", [b.id]))

@@ -12,6 +12,8 @@ import {
   estimateCardFee,
   cardInstallmentPlan,
   type CardFeeRule,
+  warrantyDetails,
+  localDate,
 } from "@tienda/domain";
 import { type Query, audit, unlocked } from "../db/database";
 import { date, money, quantity, uuid, incomeInput, initialPaymentInput } from "./validation";
@@ -623,6 +625,25 @@ export async function list(q: Query, resource: string): Promise<Row[]> {
   )
     throw new AppError("not_found", "Este módulo fue retirado.", 404);
   switch (resource) {
+    case "serial-records":
+      return (
+        await q.query("select * from serial_records order by date desc,created_at desc,id")
+      ).rows.map((r) => ({
+        ...r,
+        billing_status: !r.will_invoice
+          ? "No se facturará"
+          : r.invoice_date
+            ? "Facturada"
+            : "Pendiente de facturar",
+        ...warrantyDetails(
+          r.invoice_date,
+          r.warranty_months,
+          !!r.customer_name,
+          localDate(new Date().toISOString()),
+          r.will_invoice,
+          r.sale_date,
+        ),
+      }));
     case "products":
       return (
         await q.query(

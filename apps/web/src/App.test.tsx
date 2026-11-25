@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { StrictMode } from "react";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vitest";
@@ -76,5 +76,47 @@ it("limpia los datos privados al salir sin borrar la configuración pública", a
   expect(client.getQueryData(authConfigKey)).toEqual({ local: false });
   expect(client.getQueryData(["products"])).toBeUndefined();
   expect(client.getQueryData(["report", "2026-11"])).toBeUndefined();
+  client.clear();
+});
+it("mantiene la alerta durante el reintento e impide solicitudes duplicadas", async () => {
+  let finish!: (response: Response) => void;
+  const request = vi
+    .fn()
+    .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+  vi.stubGlobal("fetch", request);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <App />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  expect(await screen.findByRole("heading", { name: "No pudimos cargar la tienda" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Reintentar conexión" }));
+  const busy = screen.getByRole("button", { name: "Conectando…" }) as HTMLButtonElement;
+  expect(busy.disabled).toBe(true);
+  fireEvent.click(busy);
+  expect(request).toHaveBeenCalledTimes(2);
+  await act(async () =>
+    finish(
+      new Response(JSON.stringify({ message: "Servicio temporalmente no disponible." }), {
+        status: 503,
+      }),
+    ),
+  );
+  await waitFor(() =>
+    expect(
+      (screen.getByRole("button", { name: "Reintentar conexión" }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
+  expect(screen.getByRole("heading", { name: "No pudimos cargar la tienda" })).toBeTruthy();
+  expect(request).toHaveBeenCalledTimes(2);
   client.clear();
 });

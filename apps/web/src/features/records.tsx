@@ -206,6 +206,15 @@ export function Records({ resource, from, to }: { resource: string; from: string
         { key: "reference", label: "Referencia", render: (r) => r.reference || "Sin referencia" },
         { key: "supplier", label: "Proveedor", filterable: true },
         {
+          key: "notes",
+          label: "Detalle",
+          render: (r) => (
+            <span className="table-detail-preview" title={r.notes || undefined}>
+              {r.notes || "—"}
+            </span>
+          ),
+        },
+        {
           key: "total_cents",
           label: "Total",
           align: "right",

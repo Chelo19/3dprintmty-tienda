@@ -22,7 +22,10 @@ export class Errors implements ExceptionFilter {
     } else if (e?.code === "23505") {
       status = 409;
       code = "duplicate";
-      message = "Ya existe un registro con esa referencia o SKU.";
+      message =
+        e.constraint === "serial_records_number_unique"
+          ? "Este número de serie ya está registrado."
+          : "Ya existe un registro con esa referencia o SKU.";
     } else if (e?.code === "23503") {
       status = 409;
       code = "reference_error";

@@ -33,6 +33,29 @@ export function Cash({ from, to }: { from: string; to: string }) {
       params.get("documento") === "expense" ? "expense" : "purchase",
     ),
     [error, setError] = useState("");
+  const purchaseById = new Map((purchases.data ?? []).map((p) => [p.id, p])),
+    expenseById = new Map((expenses.data ?? []).map((e) => [e.id, e])),
+    incomeById = new Map((incomes.data ?? []).map((i) => [i.id, i]));
+  const movements = (rows.data ?? [])
+    .filter((r) => r.date >= from && r.date < to)
+    .map((r) => {
+      const purchase = purchaseById.get(r.purchase_id),
+        expense = expenseById.get(r.expense_id),
+        income = incomeById.get(r.income_id);
+      const detail = purchase
+        ? [purchase.supplier, purchase.reference, purchase.notes]
+        : expense
+          ? [expense.concept, expense.notes]
+          : income
+            ? [income.reference, income.notes]
+            : [];
+      return {
+        ...r,
+        detail: [
+          ...new Set(detail.filter((value) => typeof value === "string" && value.trim())),
+        ].join(" · "),
+      };
+    });
   return (
     <>
       <div className="page-heading">
@@ -82,7 +105,7 @@ export function Cash({ from, to }: { from: string; to: string }) {
         otra comisión. No necesitas conciliar cada cobro; compara los saldos al cierre del mes.
       </Notice>
       <DataTable
-        rows={(rows.data ?? []).filter((r) => r.date >= from && r.date < to)}
+        rows={movements}
         columns={[
           { key: "date", label: "Fecha", render: (r) => shortDate(r.date) },
           { key: "account", label: "Cuenta", filterable: true },
@@ -102,7 +125,24 @@ export function Cash({ from, to }: { from: string; to: string }) {
                 }) as Record<string, string>
               )[r.kind] ?? r.kind,
           },
-          { key: "notes", label: "Referencia / concepto" },
+          {
+            key: "notes",
+            label: "Referencia / concepto",
+            render: (r) => (
+              <span className="table-detail-preview" title={r.notes || undefined}>
+                {r.notes || "—"}
+              </span>
+            ),
+          },
+          {
+            key: "detail",
+            label: "Detalle",
+            render: (r) => (
+              <span className="table-detail-preview" title={r.detail || undefined}>
+                {r.detail || "—"}
+              </span>
+            ),
+          },
           {
             key: "amount_cents",
             label: "Importe",
