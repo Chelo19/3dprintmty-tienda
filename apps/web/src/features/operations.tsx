@@ -7,7 +7,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Plus, Download, LockKeyhole, ShieldCheck, Wallet } from "lucide-react";
 import { NOTES_MAX_LENGTH, type Report } from "@tienda/shared";
 import { monthBounds, Decimal, defaultCardFeeRule } from "@tienda/domain";
-import { api, download } from "../lib/api";
+import { api, download, downloadBackup } from "../lib/api";
 import { money, today, shortDate } from "../lib/format";
 import { useRows, Select } from "./records";
 import {
@@ -556,6 +556,10 @@ export function Settings() {
   const [open, setOpen] = useState(""),
     [saved, setSaved] = useState(false);
   const [feeEditor, setFeeEditor] = useState<{ method: string; installments?: number | null }>();
+  const backup = useQuery({ queryKey: ["backup-status"], queryFn: () => api("/backups/status") });
+  const [backingUp, setBackingUp] = useState(false),
+    [backupError, setBackupError] = useState(""),
+    [backupSaved, setBackupSaved] = useState(false);
   const s = settings.data;
   return (
     <>
@@ -567,6 +571,62 @@ export function Settings() {
         </div>
       </div>
       <div className="dashboard-columns">
+        <section className="panel">
+          <div className="panel-heading">
+            <h2>Copia de seguridad</h2>
+            <Download size={20} />
+          </div>
+          <p>
+            Descarga un ZIP con toda la base de datos y una guía de restauración, sin filtro de
+            fechas.
+          </p>
+          <p className="tiny muted">
+            Incluye estructura, datos y permisos. Los archivos de Supabase Storage y la
+            configuración del proyecto se respaldan por separado. Guarda el ZIP en una ubicación
+            privada.
+          </p>
+          {backupError && <Notice tone="error">{backupError}</Notice>}
+          {backupSaved && (
+            <Notice tone="success">
+              Respaldo generado y enviado al navegador. Comprueba que el ZIP esté en tus descargas.
+            </Notice>
+          )}
+          {backup.data?.available === false && (
+            <Notice>
+              El servidor necesita la conexión de migraciones y las herramientas de respaldo
+              PostgreSQL. Consulta la configuración de respaldos en el README.
+            </Notice>
+          )}
+          {backup.isError && (
+            <Notice tone="error">
+              No se pudo comprobar la disponibilidad del respaldo.{" "}
+              <button className="text-button" onClick={() => void backup.refetch()}>
+                Reintentar
+              </button>
+            </Notice>
+          )}
+          <button
+            className="button primary"
+            disabled={backingUp || !backup.data?.available}
+            onClick={async () => {
+              setBackingUp(true);
+              setBackupError("");
+              setBackupSaved(false);
+              try {
+                await downloadBackup();
+                setBackupSaved(true);
+              } catch (error) {
+                setBackupError(
+                  error instanceof Error ? error.message : "No se pudo generar el respaldo.",
+                );
+              } finally {
+                setBackingUp(false);
+              }
+            }}
+          >
+            <Download size={16} /> {backingUp ? "Preparando respaldo…" : "Descargar respaldo"}
+          </button>
+        </section>
         <section className="panel">
           <div className="panel-heading">
             <h2>Acceso e integración</h2>

@@ -664,3 +664,6 @@ Identificar los supuestos y las decisiones que requieren confirmación.
 - Priorizar simplicidad, confiabilidad y mantenimiento.
 
 **Resultado esperado:** una aplicación ligera de inteligencia financiera comercial que permita conocer con precisión cuánto vende la tienda, cuánto cuesta operar, cuánto capital mantiene en mercancía y cuánto dinero genera realmente.
+
+
+**Respaldos web (2026-11-24):** Configuración incluye descarga privada de toda la base en ZIP sin filtro de periodo. En PostgreSQL se usa MIGRATION_DATABASE_URL con pg_dump custom completo y pg_dumpall --roles-only --no-role-passwords; validar catálogo con pg_restore --list y agregar hashes e instrucciones. Herramientas nativas detectadas por PATH/PG_DUMP_PATH/Homebrew libpq; no requiere Docker ni plan pagado. PGlite exporta dumpDataDir restaurable con loadDataDir. No incluir .env ni claves; Storage y configuración externa requieren respaldo aparte. No hay restauración automática sobre producción. Bloquear descargas concurrentes por proceso, no entregar copias parciales y borrar temporales privados; el evento de generación queda auditado. Ver README para requisitos y límites.

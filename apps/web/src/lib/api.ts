@@ -96,3 +96,24 @@ export async function download(resource: string, from: string, to: string, forma
   link.click();
   setTimeout(() => URL.revokeObjectURL(href), 1000);
 }
+
+export async function downloadBackup() {
+  const requestToken = token;
+  const res = await fetch("/api/v1/backups/database", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + requestToken },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: "No se pudo descargar el respaldo." }));
+    throw new Error(body.message ?? "No se pudo descargar el respaldo.");
+  }
+  const href = URL.createObjectURL(await res.blob());
+  const link = document.createElement("a");
+  link.href = href;
+  const filename = /filename="(tienda-backup-[a-zA-Z0-9.-]+\.zip)"/.exec(
+    res.headers.get("Content-Disposition") ?? "",
+  )?.[1];
+  link.download = filename ?? `tienda-backup-${new Date().toISOString().slice(0, 10)}.zip`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(href), 1000);
+}

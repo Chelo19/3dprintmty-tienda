@@ -43,6 +43,7 @@ import {
 import { report, reportRows, csv } from "./modules/reports";
 import { fileRows, mapRows, stage, preview, confirm, reject, hash } from "./modules/imports";
 import ExcelJS from "exceljs";
+import { backupStatus, withDatabaseBackup } from "./modules/backups";
 let current: Database;
 export const setDatabase = (db: Database) => {
   current = db;
@@ -93,6 +94,34 @@ export class ApiController {
       database: current.pool ? "postgres" : "pglite",
       local: localMode(),
     }));
+  }
+  @Get("backups/status") backupStatus() {
+    return backupStatus(current);
+  }
+  @Post("backups/database") async backup(@Res() res: Response) {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    const cancellation = new AbortController();
+    const cancel = () => {
+      if (!res.writableFinished) cancellation.abort();
+    };
+    res.once("close", cancel);
+    try {
+      await withDatabaseBackup(
+        current,
+        async (file, filename) => {
+          await current.tx((q) =>
+            audit(q, "database_backup", store.id(), "generate", { filename }),
+          );
+          await new Promise<void>((resolve, reject) => {
+            res.download(file, filename, (error) => (error ? reject(error) : resolve()));
+          });
+        },
+        cancellation.signal,
+      );
+    } finally {
+      res.off("close", cancel);
+    }
   }
   @Get("tax/documents") taxDocs() {
     return current.tx((q) => taxDocuments(q));
